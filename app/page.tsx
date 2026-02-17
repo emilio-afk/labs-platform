@@ -21,6 +21,7 @@ const DEFAULT_HERO_SUBTITLE =
 export default async function Home() {
   const supabase = await createClient();
   const adminSupabase = createAdminClient();
+  const showcaseClient = adminSupabase ?? supabase;
 
   const {
     data: { user },
@@ -34,20 +35,16 @@ export default async function Home() {
     : { data: null };
   const isAdmin = profile?.role === "admin";
   let labs: LabCard[] = [];
+  const { data: showcaseLabs } = (await showcaseClient
+    .from("labs")
+    .select("id, title, description")
+    .order("created_at", { ascending: false })) as { data: LabCard[] | null };
+  const catalogLabs = showcaseLabs ?? [];
 
   if (!user) {
-    const guestQueryClient = adminSupabase ?? supabase;
-    const { data: guestLabs } = (await guestQueryClient
-      .from("labs")
-      .select("id, title, description")
-      .order("created_at", { ascending: false })) as { data: LabCard[] | null };
-    labs = guestLabs ?? [];
+    labs = catalogLabs;
   } else if (isAdmin) {
-    const { data: adminLabs } = (await supabase
-      .from("labs")
-      .select("id, title, description")
-      .order("created_at", { ascending: false })) as { data: LabCard[] | null };
-    labs = adminLabs ?? [];
+    labs = catalogLabs;
   } else {
     const { data: entitlements } = await supabase
       .from("lab_entitlements")
@@ -85,12 +82,20 @@ export default async function Home() {
         </div>
         <div className="flex gap-4 items-center">
           {!user ? (
-            <Link
-              href="/login"
-              className="bg-[var(--ast-yellow)] text-[var(--ast-black)] px-6 py-2 rounded-full text-sm font-bold hover:opacity-90 transition"
-            >
-              Ingresar
-            </Link>
+            <>
+              <Link
+                href="/login"
+                className="border border-white/25 text-white px-5 py-2 rounded-full text-sm font-semibold hover:bg-white/10 transition"
+              >
+                Ingresar
+              </Link>
+              <Link
+                href="/login"
+                className="bg-[var(--ast-yellow)] text-[var(--ast-black)] px-6 py-2 rounded-full text-sm font-bold hover:opacity-90 transition"
+              >
+                Crear cuenta
+              </Link>
+            </>
           ) : (
             <div className="flex gap-6 items-center">
               {isAdmin && (
@@ -117,6 +122,22 @@ export default async function Home() {
         <p className="text-[#d4d4d4] text-lg md:text-2xl max-w-3xl mx-auto leading-relaxed">
           {heroSubtitle}
         </p>
+        {!user && (
+          <div className="mt-8 flex flex-wrap justify-center gap-3">
+            <Link
+              href="/login"
+              className="bg-[var(--ast-yellow)] text-[var(--ast-black)] px-7 py-3 rounded-full text-sm font-bold hover:opacity-90 transition"
+            >
+              Crear cuenta
+            </Link>
+            <a
+              href="#catalogo"
+              className="border border-white/25 text-white px-7 py-3 rounded-full text-sm font-semibold hover:bg-white/10 transition"
+            >
+              Explorar Labs
+            </a>
+          </div>
+        )}
       </header>
 
       <main className="max-w-7xl mx-auto px-6 pb-24">
@@ -164,8 +185,8 @@ export default async function Home() {
             </div>
           </div>
         ) : (
-          <div className="space-y-10">
-            <section>
+          <div className="space-y-8">
+            <section id="catalogo">
               <div className="flex items-end justify-between mb-4">
                 <div>
                   <h2 className="text-2xl font-bold text-[var(--ast-yellow)]">
@@ -175,12 +196,6 @@ export default async function Home() {
                     Puedes explorar gratis el Día 1 de cada lab.
                   </p>
                 </div>
-                <Link
-                  href="/login"
-                  className="text-sm font-semibold px-4 py-2 rounded-lg bg-[var(--ast-emerald)] hover:bg-[var(--ast-forest)] transition"
-                >
-                  Crear cuenta
-                </Link>
               </div>
 
               {labs.length === 0 ? (
@@ -195,9 +210,14 @@ export default async function Home() {
                     href={`/labs/${lab.id}?day=1`}
                     className="snap-start min-w-[280px] max-w-[320px] w-[320px] rounded-2xl border border-white/10 bg-gradient-to-b from-[var(--ast-indigo)]/60 to-black/40 p-5 hover:border-[var(--ast-sky)]/50 transition"
                   >
-                    <p className="text-[10px] uppercase tracking-[0.2em] text-[var(--ast-sky)] mb-3">
-                      Vista previa
-                    </p>
+                    <div className="flex gap-2 flex-wrap mb-3">
+                      <span className="text-[10px] uppercase tracking-[0.2em] text-[var(--ast-sky)]">
+                        Vista previa
+                      </span>
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-[var(--ast-emerald)]/30 text-[var(--ast-mint)] border border-[var(--ast-emerald)]/50">
+                        Día 1 gratis
+                      </span>
+                    </div>
                     <h3 className="text-xl font-bold mb-2">{lab.title}</h3>
                     <p className="text-sm text-gray-300 line-clamp-3 mb-6">
                       {lab.description}
@@ -211,16 +231,45 @@ export default async function Home() {
               )}
             </section>
 
-            <section className="text-center py-10 bg-black/20 border border-dashed border-white/15 rounded-3xl">
-              <h2 className="text-xl font-bold mb-2">Acceso Completo con Cuenta</h2>
-              <p className="text-gray-400 mb-8">
-                Regístrate para desbloquear todos los días, foros y progreso.
+            <section className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="rounded-xl border border-white/15 bg-white/5 p-4">
+                <p className="text-xs text-[var(--ast-yellow)] uppercase tracking-widest mb-1">
+                  1
+                </p>
+                <p className="font-semibold">Explora el Día 1</p>
+                <p className="text-sm text-gray-400 mt-1">
+                  Mira el enfoque y nivel de cada lab.
+                </p>
+              </div>
+              <div className="rounded-xl border border-white/15 bg-white/5 p-4">
+                <p className="text-xs text-[var(--ast-yellow)] uppercase tracking-widest mb-1">
+                  2
+                </p>
+                <p className="font-semibold">Crea tu cuenta</p>
+                <p className="text-sm text-gray-400 mt-1">
+                  Guarda tu avance y participa en la comunidad.
+                </p>
+              </div>
+              <div className="rounded-xl border border-white/15 bg-white/5 p-4">
+                <p className="text-xs text-[var(--ast-yellow)] uppercase tracking-widest mb-1">
+                  3
+                </p>
+                <p className="font-semibold">Desbloquea el lab completo</p>
+                <p className="text-sm text-gray-400 mt-1">
+                  Accede a todos los días y retos de la ruta.
+                </p>
+              </div>
+            </section>
+
+            <section className="text-center py-5 px-5 bg-black/30 border border-white/15 rounded-2xl flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+              <p className="text-sm text-gray-300">
+                ¿Te gustó el preview? Desbloquea todos los días, retos y foro.
               </p>
               <Link
                 href="/login"
-                className="inline-block border border-[var(--ast-yellow)] text-[var(--ast-yellow)] px-8 py-3 rounded-full font-bold hover:bg-[var(--ast-yellow)] hover:text-[var(--ast-black)] transition"
+                className="inline-block bg-[var(--ast-yellow)] text-[var(--ast-black)] px-6 py-2 rounded-full font-bold hover:opacity-90 transition"
               >
-                Acceder a mis cursos
+                Crear cuenta
               </Link>
             </section>
           </div>
