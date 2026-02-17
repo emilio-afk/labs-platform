@@ -56,6 +56,7 @@ export default function AdminPanel({ initialLabs }: AdminPanelProps) {
   const [daysMsg, setDaysMsg] = useState("");
   const [daysRefreshTick, setDaysRefreshTick] = useState(0);
   const [editingDayId, setEditingDayId] = useState<string | null>(null);
+  const [uploadingBlockId, setUploadingBlockId] = useState<string | null>(null);
 
   const [commentDayFilter, setCommentDayFilter] = useState<string>("");
   const [comments, setComments] = useState<AdminComment[]>([]);
@@ -261,6 +262,39 @@ export default function AdminPanel({ initialLabs }: AdminPanelProps) {
 
   const addBlock = (type: DayBlockType) => {
     setBlocks((prev) => [...prev, createBlock(type)]);
+  };
+
+  const uploadFileForBlock = async (block: DayBlock, file: File) => {
+    if (!selectedLab) return;
+    if (block.type === "text") return;
+
+    setUploadingBlockId(block.id);
+    setDayMsg(`Subiendo ${file.name}...`);
+
+    const cleanFileName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+    const extension = cleanFileName.includes(".")
+      ? cleanFileName.split(".").pop()
+      : "";
+    const uuid =
+      globalThis.crypto?.randomUUID?.() ??
+      `${selectedLab}_${dayNumber}_${block.id}_${cleanFileName}`;
+    const uniqueName = `${uuid}${extension ? `.${extension}` : ""}`;
+    const path = `labs/${selectedLab}/day-${dayNumber}/${uniqueName}`;
+
+    const { error } = await supabase.storage
+      .from("lab-media")
+      .upload(path, file, { upsert: false, cacheControl: "3600" });
+
+    if (error) {
+      setDayMsg("Error al subir archivo: " + error.message);
+      setUploadingBlockId(null);
+      return;
+    }
+
+    const { data } = supabase.storage.from("lab-media").getPublicUrl(path);
+    updateBlock(block.id, { url: data.publicUrl });
+    setDayMsg("Archivo subido correctamente");
+    setUploadingBlockId(null);
   };
 
   const updateBlock = (id: string, patch: Partial<DayBlock>) => {
@@ -584,13 +618,37 @@ export default function AdminPanel({ initialLabs }: AdminPanelProps) {
                           />
                         ) : (
                           <div className="space-y-2">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <input
+                                type="file"
+                                accept={
+                                  block.type === "video"
+                                    ? "video/*"
+                                    : block.type === "audio"
+                                      ? "audio/*"
+                                      : "image/*"
+                                }
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  if (!file) return;
+                                  void uploadFileForBlock(block, file);
+                                  e.currentTarget.value = "";
+                                }}
+                                className="text-xs text-gray-300 file:mr-3 file:rounded file:border-0 file:bg-gray-700 file:px-3 file:py-1 file:text-xs file:text-white hover:file:bg-gray-600"
+                              />
+                              {uploadingBlockId === block.id && (
+                                <span className="text-xs text-yellow-300">
+                                  Subiendo...
+                                </span>
+                              )}
+                            </div>
                             <input
                               type="text"
                               value={block.url ?? ""}
                               onChange={(e) =>
                                 updateBlock(block.id, { url: e.target.value })
                               }
-                              placeholder="URL del recurso"
+                              placeholder="URL del recurso (o se llena al subir archivo)"
                               className="w-full p-2 rounded bg-gray-950 border border-gray-700"
                             />
                             <input

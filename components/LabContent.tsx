@@ -32,16 +32,12 @@ export default function LabContent({
 
   return (
     <div className="space-y-6">
-      {primaryYouTubeVideo?.videoId ? (
+      {primaryYouTubeVideo?.videoId && (
         <VideoPlayer
           videoId={primaryYouTubeVideo.videoId}
           onFinished={() => setVideoDone(true)}
           allowSkip={initialCompleted}
         />
-      ) : (
-        <div className="aspect-video w-full bg-gray-900 rounded-xl flex items-center justify-center border border-dashed border-gray-700 text-gray-500">
-          No hay video principal de YouTube para este día.
-        </div>
       )}
 
       <div
