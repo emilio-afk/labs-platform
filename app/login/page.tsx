@@ -1,58 +1,31 @@
 "use client";
 
 import { createClient } from "@/utils/supabase/client";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
-type AuthMode = "login" | "signup" | "reset";
+type AuthMode = "login" | "signup" | "recover";
 
 export default function LoginPage() {
   const supabase = useMemo(() => createClient(), []);
-  const initialMode: AuthMode =
-    typeof window !== "undefined" &&
-    new URLSearchParams(window.location.search).get("mode") === "reset"
-      ? "reset"
-      : "login";
-  const [mode, setMode] = useState<AuthMode>(initialMode);
+  const [mode, setMode] = useState<AuthMode>("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [newPasswordConfirm, setNewPasswordConfirm] = useState("");
   const [fullName, setFullName] = useState("");
   const [company, setCompany] = useState("");
   const [jobTitle, setJobTitle] = useState("");
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState(
-    initialMode === "reset"
-      ? "Abre el enlace del correo de recuperación y luego define tu nueva contraseña aquí."
-      : "",
-  );
+  const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState<"success" | "error" | "info">(
     "info",
   );
-  const [isRecoverySession, setIsRecoverySession] = useState(false);
 
-  useEffect(() => {
-    let active = true;
-    void supabase.auth.getSession().then(({ data }) => {
-      if (!active) return;
-      setIsRecoverySession(Boolean(data.session));
-    });
-
-    const { data: listener } = supabase.auth.onAuthStateChange((event) => {
-      if (event === "PASSWORD_RECOVERY") {
-        setMode("reset");
-        setIsRecoverySession(true);
-        setMessage("Sesión de recuperación detectada. Define tu nueva contraseña.");
-        setMessageType("info");
-      }
-    });
-
-    return () => {
-      active = false;
-      listener.subscription.unsubscribe();
-    };
-  }, [supabase.auth]);
+  const subtitle =
+    mode === "login"
+      ? "Ingresa para continuar tu progreso."
+      : mode === "signup"
+        ? "Crea tu cuenta para desbloquear labs y guardar avance."
+        : "Te enviaremos un enlace seguro para restablecer tu contraseña.";
 
   const setUiMessage = (type: "success" | "error" | "info", text: string) => {
     setMessageType(type);
@@ -122,7 +95,7 @@ export default function LoginPage() {
     if (Array.isArray(identities) && identities.length === 0) {
       setUiMessage(
         "error",
-        "Ese correo ya existe. Intenta ingresar o usa 'Olvidé mi contraseña'.",
+        "Ese correo ya existe. Intenta ingresar o recuperar contraseña.",
       );
       setLoading(false);
       return;
@@ -130,26 +103,27 @@ export default function LoginPage() {
 
     setUiMessage(
       "success",
-      "Cuenta creada. Revisa tu correo para confirmar tu cuenta y luego inicia sesión.",
+      "Cuenta creada. Revisa tu correo para confirmar tu cuenta.",
     );
     setMode("login");
     setConfirmPassword("");
     setLoading(false);
   };
 
-  const handleForgotPassword = async () => {
+  const handleSendRecovery = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
     if (!email.trim()) {
-      setUiMessage("error", "Escribe primero tu correo para enviar la recuperación.");
+      setUiMessage("error", "Escribe tu correo para enviar la recuperación.");
       return;
     }
 
     setLoading(true);
-    setUiMessage("info", "Enviando correo de recuperación...");
+    setUiMessage("info", "Enviando enlace de recuperación...");
 
     const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
       redirectTo:
         typeof window !== "undefined"
-          ? `${window.location.origin}/login?mode=reset`
+          ? `${window.location.origin}/reset-password`
           : undefined,
     });
 
@@ -161,43 +135,8 @@ export default function LoginPage() {
 
     setUiMessage(
       "success",
-      "Correo enviado. Revisa tu bandeja y abre el enlace para cambiar tu contraseña.",
+      "Listo. Revisa tu correo y abre el enlace para cambiar contraseña en una pantalla separada.",
     );
-    setLoading(false);
-  };
-
-  const handleResetPassword = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (!isRecoverySession) {
-      setUiMessage(
-        "error",
-        "No hay sesión de recuperación activa. Abre el enlace que te llegó por correo.",
-      );
-      return;
-    }
-    if (newPassword.length < 8) {
-      setUiMessage("error", "La nueva contraseña debe tener mínimo 8 caracteres.");
-      return;
-    }
-    if (newPassword !== newPasswordConfirm) {
-      setUiMessage("error", "Las nuevas contraseñas no coinciden.");
-      return;
-    }
-
-    setLoading(true);
-    setUiMessage("info", "Actualizando contraseña...");
-
-    const { error } = await supabase.auth.updateUser({ password: newPassword });
-    if (error) {
-      setUiMessage("error", translateAuthError(error.message));
-      setLoading(false);
-      return;
-    }
-
-    setUiMessage("success", "Contraseña actualizada. Ya puedes ingresar.");
-    setMode("login");
-    setNewPassword("");
-    setNewPasswordConfirm("");
     setLoading(false);
   };
 
@@ -209,9 +148,7 @@ export default function LoginPage() {
         <h1 className="text-2xl font-black text-center tracking-tight">
           Bienvenido a ASTROLAB
         </h1>
-        <p className="text-center text-sm text-gray-300">
-          Ingresa o crea tu cuenta para guardar progreso y desbloquear labs.
-        </p>
+        <p className="text-center text-sm text-gray-300">{subtitle}</p>
 
         <div className="grid grid-cols-3 gap-2 rounded-xl bg-white/5 p-1 border border-white/10">
           <button
@@ -239,11 +176,11 @@ export default function LoginPage() {
           <button
             type="button"
             className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${
-              mode === "reset"
+              mode === "recover"
                 ? "bg-[var(--ast-yellow)] text-[var(--ast-black)]"
                 : "text-gray-300 hover:bg-white/10"
             }`}
-            onClick={() => setMode("reset")}
+            onClick={() => setMode("recover")}
           >
             Recuperar
           </button>
@@ -268,7 +205,7 @@ export default function LoginPage() {
             <div className="flex items-center justify-between gap-3">
               <button
                 type="button"
-                onClick={() => void handleForgotPassword()}
+                onClick={() => setMode("recover")}
                 className="text-sm text-[var(--ast-sky)] hover:text-white transition"
                 disabled={loading}
               >
@@ -327,30 +264,23 @@ export default function LoginPage() {
           </form>
         )}
 
-        {mode === "reset" && (
+        {mode === "recover" && (
           <form
-            onSubmit={handleResetPassword}
+            onSubmit={handleSendRecovery}
             className="space-y-4 animate-[fadeIn_.25s_ease]"
           >
             <Field
-              type="password"
-              placeholder="Nueva contraseña"
-              value={newPassword}
-              onChange={setNewPassword}
-              autoComplete="new-password"
-            />
-            <Field
-              type="password"
-              placeholder="Confirmar nueva contraseña"
-              value={newPasswordConfirm}
-              onChange={setNewPasswordConfirm}
-              autoComplete="new-password"
+              type="email"
+              placeholder="Correo para recuperar"
+              value={email}
+              onChange={setEmail}
+              autoComplete="email"
             />
             <p className="text-xs text-gray-400">
-              Si llegaste aquí desde el correo de recuperación, esta acción actualiza tu
-              contraseña de inmediato.
+              Te enviaremos una liga para restablecer contraseña en una pantalla
+              separada.
             </p>
-            <SubmitButton loading={loading} label="Actualizar contraseña" fullWidth />
+            <SubmitButton loading={loading} label="Enviar enlace de recuperación" fullWidth />
           </form>
         )}
 

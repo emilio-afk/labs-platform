@@ -231,39 +231,42 @@ export default async function Home() {
               )}
             </section>
 
-            <section className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <div className="rounded-xl border border-white/15 bg-white/5 p-4">
-                <p className="text-xs text-[var(--ast-yellow)] uppercase tracking-widest mb-1">
-                  1
-                </p>
-                <p className="font-semibold">Explora el Día 1</p>
-                <p className="text-sm text-gray-400 mt-1">
-                  Mira el enfoque y nivel de cada lab.
-                </p>
-              </div>
-              <div className="rounded-xl border border-white/15 bg-white/5 p-4">
-                <p className="text-xs text-[var(--ast-yellow)] uppercase tracking-widest mb-1">
-                  2
-                </p>
-                <p className="font-semibold">Crea tu cuenta</p>
-                <p className="text-sm text-gray-400 mt-1">
-                  Guarda tu avance y participa en la comunidad.
-                </p>
-              </div>
-              <div className="rounded-xl border border-white/15 bg-white/5 p-4">
-                <p className="text-xs text-[var(--ast-yellow)] uppercase tracking-widest mb-1">
-                  3
-                </p>
-                <p className="font-semibold">Desbloquea el lab completo</p>
-                <p className="text-sm text-gray-400 mt-1">
-                  Accede a todos los días y retos de la ruta.
-                </p>
+            <section className="relative">
+              <div className="hidden md:block absolute left-[16.66%] right-[16.66%] top-12 h-px bg-gradient-to-r from-transparent via-white/30 to-transparent" />
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 relative z-10">
+                <div className="flex flex-col items-center text-center">
+                  <div className="h-24 w-24 rounded-full border border-[var(--ast-yellow)]/50 bg-[var(--ast-indigo)]/50 flex items-center justify-center text-2xl font-black text-[var(--ast-yellow)]">
+                    1
+                  </div>
+                  <p className="font-semibold mt-3">Explora el Día 1</p>
+                  <p className="text-sm text-gray-400 mt-1">
+                    Mira el enfoque y nivel de cada lab.
+                  </p>
+                </div>
+                <div className="flex flex-col items-center text-center">
+                  <div className="h-24 w-24 rounded-full border border-[var(--ast-yellow)]/50 bg-[var(--ast-indigo)]/50 flex items-center justify-center text-2xl font-black text-[var(--ast-yellow)]">
+                    2
+                  </div>
+                  <p className="font-semibold mt-3">Crea tu cuenta</p>
+                  <p className="text-sm text-gray-400 mt-1">
+                    Guarda tu avance y participa en la comunidad.
+                  </p>
+                </div>
+                <div className="flex flex-col items-center text-center">
+                  <div className="h-24 w-24 rounded-full border border-[var(--ast-yellow)]/50 bg-[var(--ast-indigo)]/50 flex items-center justify-center text-2xl font-black text-[var(--ast-yellow)]">
+                    3
+                  </div>
+                  <p className="font-semibold mt-3">Desbloquea el lab completo</p>
+                  <p className="text-sm text-gray-400 mt-1">
+                    Accede a todos los días y retos de la ruta.
+                  </p>
+                </div>
               </div>
             </section>
 
-            <section className="text-center py-5 px-5 bg-black/30 border border-white/15 rounded-2xl flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <section className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 pt-1">
               <p className="text-sm text-gray-300">
-                ¿Te gustó el preview? Desbloquea todos los días, retos y foro.
+                Nota: ¿Te gustó el preview? Desbloquea todos los días, retos y foro.
               </p>
               <Link
                 href="/login"
