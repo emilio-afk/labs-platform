@@ -33,13 +33,15 @@ export default function LoginPage() {
       email,
       password,
     });
+
     if (error) {
       setMessage("Error: " + error.message);
+      setLoading(false);
     } else {
-      router.push("/");
-      router.refresh();
+      // CAMBIO CLAVE: Usamos window.location.href en lugar de router.push
+      // Esto obliga al navegador a recargar todo y enviar las nuevas credenciales al servidor
+      window.location.href = "/";
     }
-    setLoading(false);
   };
 
   return (
