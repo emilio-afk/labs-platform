@@ -2,6 +2,13 @@
 import { useRef, useEffect } from "react";
 import YouTube, { YouTubeProps } from "react-youtube";
 
+type YouTubePlayerLike = {
+  getPlayerState: () => number;
+  getCurrentTime: () => number;
+  getPlaybackRate: () => number;
+  seekTo: (seconds: number, allowSeekAhead?: boolean) => void;
+};
+
 export default function VideoPlayer({
   videoId,
   onFinished,
@@ -23,7 +30,7 @@ export default function VideoPlayer({
   }, []);
 
   const onPlayerReady: YouTubeProps["onReady"] = (event) => {
-    const player = event.target as YT.Player;
+    const player = event.target as YouTubePlayerLike;
     lastTimeRef.current = 0;
 
     if (!allowSkip) {
@@ -34,7 +41,7 @@ export default function VideoPlayer({
     }
   };
 
-  const checkAntiCheat = (player: YT.Player) => {
+  const checkAntiCheat = (player: YouTubePlayerLike) => {
     if (isPunishingRef.current) return;
 
     const playerState = player.getPlayerState();
