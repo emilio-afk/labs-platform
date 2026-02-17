@@ -14,36 +14,25 @@ export default function LabContent({
   labId: string;
   videoId: string;
 }) {
-  // Estado para saber si el video terminó
   const [videoDone, setVideoDone] = useState(false);
 
   return (
     <div className="space-y-6">
-      {/* 1. Video Player Inteligente */}
-      {videoId && (
-        <VideoPlayer
-          videoId={videoId}
-          onFinished={() => {
-            console.log("¡Señal recibida! Video terminado.");
-            setVideoDone(true);
-          }}
-        />
+      {videoId ? (
+        <VideoPlayer videoId={videoId} onFinished={() => setVideoDone(true)} />
+      ) : (
+        <div className="aspect-video w-full bg-gray-900 rounded-xl flex items-center justify-center border border-dashed border-gray-700 text-gray-500">
+          No hay video disponible para este módulo.
+        </div>
       )}
 
-      {/* 2. Cuadro del Reto con Bloqueo Visual */}
       <div
-        className={`p-8 rounded-xl border transition-all duration-500 ${
-          videoDone
-            ? "bg-gray-900 border-gray-700"
-            : "bg-gray-900/30 border-gray-800 opacity-80"
-        }`}
+        className={`p-8 rounded-xl border transition-all duration-500 ${videoDone ? "bg-gray-900 border-gray-700" : "bg-gray-900/40 border-gray-800 opacity-90"}`}
       >
         <div className="flex justify-between items-start mb-6">
           <h2 className="text-2xl font-bold text-green-400">
             Reto del Día {currentDay.day_number}
           </h2>
-
-          {/* El botón se desbloquea solo si videoDone es true */}
           <div
             className={
               videoDone ? "opacity-100" : "opacity-20 pointer-events-none"
@@ -53,9 +42,9 @@ export default function LabContent({
           </div>
         </div>
 
-        {!videoDone && (
+        {!videoDone && videoId && (
           <p className="text-xs text-yellow-500/70 mb-4 animate-pulse">
-            ⚠️ Debes ver el video completo para marcar este día como terminado.
+            ⚠️ Mira el video completo para desbloquear este paso.
           </p>
         )}
 
@@ -64,7 +53,6 @@ export default function LabContent({
         </div>
       </div>
 
-      {/* 3. Foro del día */}
       <Forum labId={labId} dayNumber={currentDay.day_number} />
     </div>
   );
