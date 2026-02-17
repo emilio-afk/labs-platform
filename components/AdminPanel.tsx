@@ -20,6 +20,8 @@ export type AdminLab = {
 
 type AdminPanelProps = {
   initialLabs: AdminLab[];
+  initialHeroTitle: string;
+  initialHeroSubtitle: string;
 };
 
 type AdminComment = {
@@ -38,8 +40,16 @@ type AdminDay = {
   content: string | null;
 };
 
-export default function AdminPanel({ initialLabs }: AdminPanelProps) {
+export default function AdminPanel({
+  initialLabs,
+  initialHeroTitle,
+  initialHeroSubtitle,
+}: AdminPanelProps) {
   const [labs, setLabs] = useState<AdminLab[]>(initialLabs);
+
+  const [heroTitle, setHeroTitle] = useState(initialHeroTitle);
+  const [heroSubtitle, setHeroSubtitle] = useState(initialHeroSubtitle);
+  const [heroMsg, setHeroMsg] = useState("");
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -178,6 +188,29 @@ export default function AdminPanel({ initialLabs }: AdminPanelProps) {
     setTitle("");
     setDescription("");
     await fetchLabs();
+  };
+
+  const saveHeroSettings = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setHeroMsg("Guardando portada...");
+
+    const { error } = await supabase.from("app_settings").upsert(
+      [
+        {
+          id: 1,
+          hero_title: heroTitle.trim(),
+          hero_subtitle: heroSubtitle.trim(),
+        },
+      ],
+      { onConflict: "id" },
+    );
+
+    if (error) {
+      setHeroMsg("Error: " + error.message);
+      return;
+    }
+
+    setHeroMsg("Portada guardada");
   };
 
   const saveDay = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -393,7 +426,37 @@ export default function AdminPanel({ initialLabs }: AdminPanelProps) {
 
         <section className="bg-gray-800 p-6 rounded-lg border border-gray-700">
           <h2 className="text-xl font-bold mb-4 text-blue-400">
-            1. Crear Nuevo Curso (Lab)
+            1. Hero de Inicio
+          </h2>
+          <form onSubmit={saveHeroSettings} className="space-y-4">
+            <input
+              type="text"
+              placeholder="Titulo principal"
+              className="p-2 rounded bg-black border border-gray-600 w-full"
+              value={heroTitle}
+              onChange={(e) => setHeroTitle(e.target.value)}
+              required
+            />
+            <textarea
+              placeholder="Subtitulo del hero"
+              className="p-2 h-24 rounded bg-black border border-gray-600 w-full"
+              value={heroSubtitle}
+              onChange={(e) => setHeroSubtitle(e.target.value)}
+              required
+            />
+            <button
+              type="submit"
+              className="bg-blue-600 hover:bg-blue-700 px-6 py-2 rounded text-white font-bold"
+            >
+              Guardar Hero
+            </button>
+            {heroMsg && <span className="ml-4 text-yellow-300">{heroMsg}</span>}
+          </form>
+        </section>
+
+        <section className="bg-gray-800 p-6 rounded-lg border border-gray-700">
+          <h2 className="text-xl font-bold mb-4 text-blue-400">
+            2. Crear Nuevo Curso (Lab)
           </h2>
           <form onSubmit={createLab} className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -425,7 +488,7 @@ export default function AdminPanel({ initialLabs }: AdminPanelProps) {
 
         <section className="bg-gray-800 p-6 rounded-lg border border-gray-700">
           <h2 className="text-xl font-bold mb-4 text-green-400">
-            2. Disenar Dias con Bloques de Contenido
+            3. Disenar Dias con Bloques de Contenido
           </h2>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
@@ -694,7 +757,7 @@ export default function AdminPanel({ initialLabs }: AdminPanelProps) {
 
         <section className="bg-gray-800 p-6 rounded-lg border border-gray-700">
           <h2 className="text-xl font-bold mb-4 text-amber-400">
-            3. Moderacion de Comentarios
+            4. Moderacion de Comentarios
           </h2>
           {!selectedLab ? (
             <p className="text-gray-400">

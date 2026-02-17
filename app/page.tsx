@@ -2,15 +2,30 @@ import { createClient } from "@/utils/supabase/server";
 import Link from "next/link";
 import LogoutButton from "@/components/LogoutButton";
 
+type LabCard = {
+  id: string;
+  title: string;
+  description: string | null;
+};
+
+type SiteSettings = {
+  hero_title: string | null;
+  hero_subtitle: string | null;
+};
+
+const DEFAULT_HERO_TITLE = "Aprende, practica y ejecuta en días.";
+const DEFAULT_HERO_SUBTITLE =
+  "Explora rutas prácticas y desbloquea cada lab con tu acceso.";
+
 export default async function Home() {
   const supabase = await createClient();
 
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  const { data: labs } = await supabase
+  const { data: labs } = (await supabase
     .from("labs")
-    .select("id, title, description");
+    .select("id, title, description")) as { data: LabCard[] | null };
   const { data: profile } = user
     ? await supabase
         .from("profiles")
@@ -19,19 +34,26 @@ export default async function Home() {
         .maybeSingle()
     : { data: null };
   const isAdmin = profile?.role === "admin";
+  const { data: settings } = (await supabase
+    .from("app_settings")
+    .select("hero_title, hero_subtitle")
+    .eq("id", 1)
+    .maybeSingle()) as { data: SiteSettings | null };
+
+  const heroTitle = settings?.hero_title?.trim() || DEFAULT_HERO_TITLE;
+  const heroSubtitle = settings?.hero_subtitle?.trim() || DEFAULT_HERO_SUBTITLE;
 
   return (
-    <div className="min-h-screen bg-[#050505] text-white selection:bg-green-500/30">
-      {/* Navbar inteligente */}
-      <nav className="p-6 max-w-7xl mx-auto flex justify-between items-center border-b border-white/5">
+    <div className="min-h-screen bg-[var(--ast-black)] text-[var(--ast-white)] selection:bg-[var(--ast-yellow)]/35">
+      <nav className="p-6 max-w-7xl mx-auto flex justify-between items-center border-b border-white/10">
         <div className="text-2xl font-black tracking-tighter">
-          LABS<span className="text-green-500">.</span>
+          ASTROLAB<span className="text-[var(--ast-coral)]">.</span>
         </div>
         <div className="flex gap-4 items-center">
           {!user ? (
             <Link
               href="/login"
-              className="bg-white text-black px-6 py-2 rounded-full text-sm font-bold hover:bg-gray-200 transition"
+              className="bg-[var(--ast-yellow)] text-[var(--ast-black)] px-6 py-2 rounded-full text-sm font-bold hover:opacity-90 transition"
             >
               Ingresar
             </Link>
@@ -40,33 +62,31 @@ export default async function Home() {
               {isAdmin && (
                 <Link
                   href="/admin"
-                  className="text-sm font-medium text-gray-400 hover:text-white transition"
+                  className="text-sm font-medium text-[var(--ast-sky)] hover:text-[var(--ast-white)] transition"
                 >
                   Panel Admin
                 </Link>
               )}
-              {/* Este es el componente de cliente para cerrar sesión */}
               <LogoutButton />
             </div>
           )}
         </div>
       </nav>
 
-      {/* Hero Section - Siempre visible */}
-      <header className="py-24 px-6 text-center max-w-4xl mx-auto">
-        <h1 className="text-6xl md:text-8xl font-black tracking-tight mb-6 bg-gradient-to-b from-white to-gray-500 bg-clip-text text-transparent">
-          Domina nuevas habilidades en 5 días.
+      <header className="py-20 px-6 text-center max-w-5xl mx-auto">
+        <div className="inline-flex px-4 py-1 rounded-full bg-[var(--ast-indigo)]/60 border border-[var(--ast-atlantic)] text-xs tracking-widest uppercase mb-6">
+          Escaparate de Labs
+        </div>
+        <h1 className="text-5xl md:text-7xl font-black tracking-tight mb-6 leading-[0.95]">
+          {heroTitle}
         </h1>
-        <p className="text-gray-400 text-xl md:text-2xl max-w-2xl mx-auto leading-relaxed">
-          Plataformas de aprendizaje diseñadas para la acción. Sin rodeos,
-          directo al grano.
+        <p className="text-[#d4d4d4] text-lg md:text-2xl max-w-3xl mx-auto leading-relaxed">
+          {heroSubtitle}
         </p>
       </header>
 
-      {/* Sección de Cursos: El candado de seguridad */}
       <main className="max-w-7xl mx-auto px-6 pb-24">
         {user ? (
-          /* Vista para Alumnos Logueados */
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
             {labs?.map((lab) => (
               <Link
@@ -74,19 +94,19 @@ export default async function Home() {
                 href={`/labs/${lab.id}`}
                 className="group relative"
               >
-                <div className="absolute -inset-0.5 bg-gradient-to-r from-green-500 to-blue-500 rounded-2xl blur opacity-0 group-hover:opacity-20 transition duration-500"></div>
-                <div className="relative bg-[#0A0A0A] border border-white/10 p-8 rounded-2xl h-full flex flex-col justify-between hover:border-white/20 transition">
+                <div className="absolute -inset-0.5 bg-gradient-to-r from-[var(--ast-atlantic)] to-[var(--ast-emerald)] rounded-2xl blur opacity-0 group-hover:opacity-25 transition duration-500"></div>
+                <div className="relative bg-black/40 border border-white/10 p-8 rounded-2xl h-full flex flex-col justify-between hover:border-[var(--ast-sky)]/40 transition">
                   <div>
-                    <h3 className="text-2xl font-bold mb-3 group-hover:text-green-400 transition">
+                    <h3 className="text-2xl font-bold mb-3 group-hover:text-[var(--ast-yellow)] transition">
                       {lab.title}
                     </h3>
-                    <p className="text-gray-500 leading-relaxed line-clamp-3">
+                    <p className="text-gray-400 leading-relaxed line-clamp-3">
                       {lab.description}
                     </p>
                   </div>
                   <div className="mt-8 pt-6 border-t border-white/5 flex justify-between items-center text-sm font-bold">
-                    <span className="text-gray-600 uppercase tracking-widest text-xs">
-                      5 Módulos
+                    <span className="text-gray-500 uppercase tracking-widest text-xs">
+                      Ruta completa
                     </span>
                     <span className="flex items-center gap-2">
                       Empezar{" "}
@@ -100,18 +120,59 @@ export default async function Home() {
             ))}
           </div>
         ) : (
-          /* Vista para Invitados */
-          <div className="text-center py-20 bg-gray-900/20 border border-dashed border-gray-800 rounded-3xl">
-            <h2 className="text-xl font-bold mb-2">Contenido Exclusivo</h2>
-            <p className="text-gray-500 mb-8">
-              Inicia sesión para desbloquear tus Labs y comenzar a aprender.
-            </p>
-            <Link
-              href="/login"
-              className="inline-block border border-green-500 text-green-500 px-8 py-3 rounded-full font-bold hover:bg-green-500 hover:text-black transition"
-            >
-              Acceder a mis cursos
-            </Link>
+          <div className="space-y-10">
+            <section>
+              <div className="flex items-end justify-between mb-4">
+                <div>
+                  <h2 className="text-2xl font-bold text-[var(--ast-yellow)]">
+                    Descubre los Labs
+                  </h2>
+                  <p className="text-gray-300 text-sm">
+                    Puedes explorar gratis el Día 1 de cada lab.
+                  </p>
+                </div>
+                <Link
+                  href="/login"
+                  className="text-sm font-semibold px-4 py-2 rounded-lg bg-[var(--ast-emerald)] hover:bg-[var(--ast-forest)] transition"
+                >
+                  Crear cuenta
+                </Link>
+              </div>
+
+              <div className="flex gap-4 overflow-x-auto pb-3 snap-x snap-mandatory">
+                {(labs ?? []).map((lab) => (
+                  <Link
+                    key={lab.id}
+                    href={`/labs/${lab.id}?day=1`}
+                    className="snap-start min-w-[280px] max-w-[320px] w-[320px] rounded-2xl border border-white/10 bg-gradient-to-b from-[var(--ast-indigo)]/60 to-black/40 p-5 hover:border-[var(--ast-sky)]/50 transition"
+                  >
+                    <p className="text-[10px] uppercase tracking-[0.2em] text-[var(--ast-sky)] mb-3">
+                      Vista previa
+                    </p>
+                    <h3 className="text-xl font-bold mb-2">{lab.title}</h3>
+                    <p className="text-sm text-gray-300 line-clamp-3 mb-6">
+                      {lab.description}
+                    </p>
+                    <div className="text-xs text-[var(--ast-yellow)] font-semibold">
+                      Ver Día 1 →
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            </section>
+
+            <section className="text-center py-10 bg-black/20 border border-dashed border-white/15 rounded-3xl">
+              <h2 className="text-xl font-bold mb-2">Acceso Completo con Cuenta</h2>
+              <p className="text-gray-400 mb-8">
+                Regístrate para desbloquear todos los días, foros y progreso.
+              </p>
+              <Link
+                href="/login"
+                className="inline-block border border-[var(--ast-yellow)] text-[var(--ast-yellow)] px-8 py-3 rounded-full font-bold hover:bg-[var(--ast-yellow)] hover:text-[var(--ast-black)] transition"
+              >
+                Acceder a mis cursos
+              </Link>
+            </section>
           </div>
         )}
       </main>

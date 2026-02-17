@@ -1,6 +1,7 @@
 "use client";
 
 import { extractYouTubeVideoId, parseDayBlocks } from "@/utils/dayBlocks";
+import Link from "next/link";
 import { useState } from "react";
 import VideoPlayer from "./VideoPlayer";
 import ProgressButton from "./ProgressButton";
@@ -18,11 +19,13 @@ export default function LabContent({
   labId,
   initialCompleted,
   onDayCompleted,
+  previewMode = false,
 }: {
   currentDay: DayContent;
   labId: string;
   initialCompleted: boolean;
   onDayCompleted?: (dayNumber: number) => void;
+  previewMode?: boolean;
 }) {
   const blocks = parseDayBlocks(currentDay.content, currentDay.video_url);
   const primaryYouTubeVideo = findPrimaryYouTubeVideo(blocks);
@@ -47,18 +50,20 @@ export default function LabContent({
           <h2 className="text-2xl font-bold text-green-400">
             Reto del Día {currentDay.day_number}
           </h2>
-          <div
-            className={
-              videoDone ? "opacity-100" : "opacity-20 pointer-events-none"
-            }
-          >
-            <ProgressButton
-              labId={labId}
-              dayNumber={currentDay.day_number}
-              initialCompleted={initialCompleted}
-              onCompleted={onDayCompleted}
-            />
-          </div>
+          {!previewMode && (
+            <div
+              className={
+                videoDone ? "opacity-100" : "opacity-20 pointer-events-none"
+              }
+            >
+              <ProgressButton
+                labId={labId}
+                dayNumber={currentDay.day_number}
+                initialCompleted={initialCompleted}
+                onCompleted={onDayCompleted}
+              />
+            </div>
+          )}
         </div>
 
         {!videoDone && requiresWatch && (
@@ -155,7 +160,25 @@ export default function LabContent({
         </div>
       </div>
 
-      <Forum labId={labId} dayNumber={currentDay.day_number} />
+      {previewMode ? (
+        <div className="mt-8 p-6 rounded-xl border border-dashed border-white/20 bg-black/20">
+          <h3 className="text-lg font-bold mb-2 text-[var(--ast-yellow)]">
+            Te gustó este lab?
+          </h3>
+          <p className="text-gray-300 mb-4">
+            Crea una cuenta para desbloquear todos los días y participar en el
+            foro.
+          </p>
+          <Link
+            href="/login"
+            className="inline-block px-5 py-2 rounded-full bg-[var(--ast-emerald)] hover:bg-[var(--ast-forest)] font-semibold"
+          >
+            Desbloquear contenido
+          </Link>
+        </div>
+      ) : (
+        <Forum labId={labId} dayNumber={currentDay.day_number} />
+      )}
     </div>
   );
 }

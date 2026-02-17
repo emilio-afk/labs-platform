@@ -1,6 +1,6 @@
 import { createClient } from "@/utils/supabase/server";
 import Link from "next/link";
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import LabWorkspace, { type WorkspaceDay } from "@/components/LabWorkspace";
 
 type Lab = {
@@ -35,10 +35,7 @@ export default async function LabDetails({
   const {
     data: { user },
   } = await supabase.auth.getUser();
-
-  if (!user) {
-    redirect("/login");
-  }
+  const isPreview = !user;
 
   const [labResult, daysResult, progressResult] = await Promise.all([
     supabase.from("labs").select("id, title, description").eq("id", id).single(),
@@ -47,11 +44,13 @@ export default async function LabDetails({
       .select("id, lab_id, day_number, title, video_url, content")
       .eq("lab_id", id)
       .order("day_number", { ascending: true }),
-    supabase
-      .from("progress")
-      .select("day_number")
-      .eq("user_id", user.id)
-      .eq("lab_id", id),
+    user
+      ? supabase
+          .from("progress")
+          .select("day_number")
+          .eq("user_id", user.id)
+          .eq("lab_id", id)
+      : Promise.resolve({ data: [] }),
   ]);
 
   const lab = labResult.data as Lab | null;
@@ -59,20 +58,37 @@ export default async function LabDetails({
 
   if (!lab || !days) notFound();
 
-  const completedDays =
-    (progressResult.data?.map((item) => item.day_number).filter((n): n is number => typeof n === "number") ?? []);
+  const completedDays = user
+    ? ((progressResult.data as { day_number: number | null }[] | null)
+        ?.map((item) => item.day_number)
+        .filter((n): n is number => typeof n === "number") ?? [])
+    : [];
+  const initialDayForView = isPreview ? 1 : currentDayNumber;
 
   return (
     <div className="min-h-screen bg-black text-white">
-      <div className="bg-gray-900 border-b border-gray-800 p-6">
+      <div className="bg-[color:rgba(1,25,99,0.35)] border-b border-white/10 p-6">
         <div className="max-w-6xl mx-auto">
           <Link
             href="/"
-            className="text-green-500 text-sm mb-1 block hover:underline"
+            className="text-[var(--ast-yellow)] text-sm mb-1 block hover:underline"
           >
             ← Volver al inicio
           </Link>
           <h1 className="text-2xl font-bold">{lab.title}</h1>
+          {isPreview && (
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <span className="text-xs px-3 py-1 rounded-full bg-[var(--ast-rust)]/80 border border-[var(--ast-coral)]">
+                Vista previa: solo Día 1
+              </span>
+              <Link
+                href="/login"
+                className="text-xs px-3 py-1 rounded-full bg-[var(--ast-emerald)] hover:bg-[var(--ast-forest)] transition"
+              >
+                Crear cuenta para desbloquear todo
+              </Link>
+            </div>
+          )}
         </div>
       </div>
 
@@ -80,8 +96,9 @@ export default async function LabDetails({
         <LabWorkspace
           labId={id}
           days={days as WorkspaceDay[]}
-          initialDayNumber={currentDayNumber}
+          initialDayNumber={initialDayForView}
           completedDayNumbers={completedDays}
+          previewMode={isPreview}
         />
       </div>
     </div>
