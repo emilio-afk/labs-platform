@@ -1,8 +1,23 @@
 import { createClient } from "@/utils/supabase/server";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import ProgressBar from "@/components/ProgressBar";
 import LabContent from "@/components/LabContent";
+
+type Lab = {
+  id: string;
+  title: string;
+  description: string | null;
+};
+
+type LabDay = {
+  id: string;
+  lab_id: string;
+  day_number: number;
+  title: string;
+  video_url: string | null;
+  content: string;
+};
 
 export default async function LabDetails({
   params,
@@ -14,43 +29,45 @@ export default async function LabDetails({
   const { id } = await params;
   const { day } = await searchParams;
 
-  const currentDayNumber = day ? parseInt(day) : 1;
+  const parsedDay = day ? Number.parseInt(day, 10) : 1;
+  const currentDayNumber = Number.isFinite(parsedDay) && parsedDay > 0 ? parsedDay : 1;
   const supabase = await createClient();
-
-  const { data: lab } = await supabase
-    .from("labs")
-    .select("*")
-    .eq("id", id)
-    .single();
-  const { data: days } = await supabase
-    .from("days")
-    .select("*")
-    .eq("lab_id", id)
-    .order("day_number", { ascending: true });
-
-  if (!lab || !days) notFound();
-
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
-  // 1. Conteo total para la barra superior
+  if (!user) {
+    redirect("/login");
+  }
+
+  const { data: lab } = (await supabase
+    .from("labs")
+    .select("id, title, description")
+    .eq("id", id)
+    .single()) as { data: Lab | null };
+  const { data: days } = (await supabase
+    .from("days")
+    .select("id, lab_id, day_number, title, video_url, content")
+    .eq("lab_id", id)
+    .order("day_number", { ascending: true })) as { data: LabDay[] | null };
+
+  if (!lab || !days) notFound();
+
   const { count: completedCount } = await supabase
     .from("progress")
-    .select("*", { count: "exact", head: true })
-    .eq("user_id", user?.id)
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", user.id)
     .eq("lab_id", id);
 
-  // 2. CHECK DE PERSISTENCIA: ¿Ya terminó ESTE día específico?
   const { data: dayProgress } = await supabase
     .from("progress")
     .select("id")
-    .eq("user_id", user?.id)
+    .eq("user_id", user.id)
     .eq("lab_id", id)
     .eq("day_number", currentDayNumber)
     .maybeSingle();
 
-  const isDayCompleted = !!dayProgress; // True si ya existe registro
+  const isDayCompleted = Boolean(dayProgress);
 
   const currentDay = days.find((d) => d.day_number === currentDayNumber);
 

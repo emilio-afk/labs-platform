@@ -1,7 +1,15 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { createClient } from "@/utils/supabase/client";
+import type { User } from "@supabase/supabase-js";
+
+type Comment = {
+  id: string;
+  user_email: string | null;
+  content: string;
+  created_at: string;
+};
 
 export default function Forum({
   labId,
@@ -10,28 +18,37 @@ export default function Forum({
   labId: string;
   dayNumber: number;
 }) {
-  const [comments, setComments] = useState<any[]>([]);
+  const [comments, setComments] = useState<Comment[]>([]);
   const [newComment, setNewComment] = useState("");
-  const [user, setUser] = useState<any>(null);
-  const supabase = createClient();
+  const [user, setUser] = useState<User | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const supabase = useMemo(() => createClient(), []);
 
   useEffect(() => {
-    // 1. Obtener usuario actual
-    supabase.auth.getUser().then(({ data }) => setUser(data.user));
+    let active = true;
 
-    // 2. Cargar comentarios iniciales
-    fetchComments();
-  }, [labId, dayNumber]);
+    const loadForumData = async () => {
+      const [{ data: authData }, { data: commentsData }] = await Promise.all([
+        supabase.auth.getUser(),
+        supabase
+          .from("comments")
+          .select("id, user_email, content, created_at")
+          .eq("lab_id", labId)
+          .eq("day_number", dayNumber)
+          .order("created_at", { ascending: false }),
+      ]);
 
-  const fetchComments = async () => {
-    const { data } = await supabase
-      .from("comments")
-      .select("*")
-      .eq("lab_id", labId)
-      .eq("day_number", dayNumber)
-      .order("created_at", { ascending: false });
-    if (data) setComments(data);
-  };
+      if (!active) return;
+      setUser(authData.user);
+      setComments((commentsData as Comment[] | null) ?? []);
+    };
+
+    loadForumData();
+
+    return () => {
+      active = false;
+    };
+  }, [dayNumber, labId, refreshKey, supabase]);
 
   const postComment = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -49,7 +66,7 @@ export default function Forum({
 
     if (!error) {
       setNewComment("");
-      fetchComments(); // Recargar lista
+      setRefreshKey((prev) => prev + 1);
     }
   };
 

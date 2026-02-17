@@ -5,11 +5,20 @@ import LogoutButton from "@/components/LogoutButton";
 export default async function Home() {
   const supabase = await createClient();
 
-  // 1. Obtenemos la sesión del usuario y la lista de cursos
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  const { data: labs } = await supabase.from("labs").select("*");
+  const { data: labs } = await supabase
+    .from("labs")
+    .select("id, title, description");
+  const { data: profile } = user
+    ? await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", user.id)
+        .maybeSingle()
+    : { data: null };
+  const isAdmin = profile?.role === "admin";
 
   return (
     <div className="min-h-screen bg-[#050505] text-white selection:bg-green-500/30">
@@ -28,12 +37,14 @@ export default async function Home() {
             </Link>
           ) : (
             <div className="flex gap-6 items-center">
-              <Link
-                href="/admin"
-                className="text-sm font-medium text-gray-400 hover:text-white transition"
-              >
-                Panel Admin
-              </Link>
+              {isAdmin && (
+                <Link
+                  href="/admin"
+                  className="text-sm font-medium text-gray-400 hover:text-white transition"
+                >
+                  Panel Admin
+                </Link>
+              )}
               {/* Este es el componente de cliente para cerrar sesión */}
               <LogoutButton />
             </div>

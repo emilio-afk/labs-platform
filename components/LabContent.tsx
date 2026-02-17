@@ -5,13 +5,19 @@ import VideoPlayer from "./VideoPlayer";
 import ProgressButton from "./ProgressButton";
 import Forum from "./Forum";
 
+type DayContent = {
+  id: string;
+  day_number: number;
+  content: string;
+};
+
 export default function LabContent({
   currentDay,
   labId,
   videoId,
   initialCompleted,
 }: {
-  currentDay: any;
+  currentDay: DayContent;
   labId: string;
   videoId: string;
   initialCompleted: boolean;
@@ -45,7 +51,11 @@ export default function LabContent({
               videoDone ? "opacity-100" : "opacity-20 pointer-events-none"
             }
           >
-            <ProgressButton labId={labId} dayNumber={currentDay.day_number} />
+            <ProgressButton
+              labId={labId}
+              dayNumber={currentDay.day_number}
+              initialCompleted={initialCompleted}
+            />
           </div>
         </div>
 
