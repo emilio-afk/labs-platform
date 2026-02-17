@@ -1,9 +1,8 @@
-import { createClient } from "@/utils/supabase/client";
+import { createClient } from "@/utils/supabase/server";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import Forum from "@/components/Forum";
-import ProgressButton from "@/components/ProgressButton";
-import VideoPlayer from "@/components/VideoPlayer";
+import ProgressBar from "@/components/ProgressBar";
+import LabContent from "@/components/LabContent";
 
 export default async function LabDetails({
   params,
@@ -15,10 +14,8 @@ export default async function LabDetails({
   const { id } = await params;
   const { day } = await searchParams;
 
-  // Si no hay día en la URL, por defecto es el 1
   const currentDayNumber = day ? parseInt(day) : 1;
-
-  const supabase = createClient();
+  const supabase = await createClient();
 
   // 1. Buscamos el Lab
   const { data: lab } = await supabase
@@ -27,34 +24,40 @@ export default async function LabDetails({
     .eq("id", id)
     .single();
 
-  // 2. Buscamos todos los días para la lista lateral
+  // 2. Buscamos todos los días
   const { data: days } = await supabase
     .from("days")
     .select("*")
     .eq("lab_id", id)
     .order("day_number", { ascending: true });
 
-  if (!lab) notFound();
+  if (!lab || !days) notFound();
 
-  // 3. Buscamos el contenido del día específico que el usuario seleccionó
-  const currentDay = days?.find((d) => d.day_number === currentDayNumber);
+  // 3. Calculamos el progreso real del usuario para la barra
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const { count: completedCount } = await supabase
+    .from("progress")
+    .select("*", { count: "exact", head: true })
+    .eq("user_id", user?.id)
+    .eq("lab_id", id);
 
-  const getEmbedUrl = (url: string) => {
-    if (!url) return null;
-    const regExp =
-      /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
-    const match = url.match(regExp);
-    return match && match[2].length === 11
-      ? `https://www.youtube.com/embed/${match[2]}`
-      : null;
-  };
+  const currentDay = days.find((d) => d.day_number === currentDayNumber);
+
+  // Extraemos el ID de YouTube (ej: dQw4w9WgXcQ)
+  const videoId = currentDay?.video_url?.split("v=")[1]?.split("&")[0] || "";
 
   return (
     <div className="min-h-screen bg-black text-white">
+      {/* HEADER */}
       <div className="bg-gray-900 border-b border-gray-800 p-6">
         <div className="max-w-6xl mx-auto flex justify-between items-center">
           <div>
-            <Link href="/" className="text-green-500 text-sm mb-1 block">
+            <Link
+              href="/"
+              className="text-green-500 text-sm mb-1 block hover:underline"
+            >
               ← Volver al inicio
             </Link>
             <h1 className="text-2xl font-bold">{lab.title}</h1>
@@ -63,10 +66,10 @@ export default async function LabDetails({
       </div>
 
       <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-8 p-8">
-        {/* LISTA DE DÍAS (Navegación) */}
+        {/* COLUMNA IZQUIERDA: Módulos */}
         <div className="lg:col-span-1 space-y-4">
           <h2 className="text-xl font-bold mb-4">Módulos</h2>
-          {days?.map((d) => (
+          {days.map((d) => (
             <Link key={d.id} href={`/labs/${id}?day=${d.day_number}`}>
               <div
                 className={`p-4 mb-3 rounded-lg border transition ${
@@ -92,31 +95,22 @@ export default async function LabDetails({
           ))}
         </div>
 
-        {/* CONTENIDO DEL DÍA SELECCIONADO */}
+        {/* COLUMNA DERECHA: Contenido y Gamificación */}
         <div className="lg:col-span-2 space-y-6">
           {currentDay ? (
             <>
-              {currentDay.video_url && (
-                <div className="aspect-video w-full rounded-xl overflow-hidden border border-gray-800">
-                  <iframe
-                    className="w-full h-full"
-                    src={getEmbedUrl(currentDay.video_url) || ""}
-                    allowFullScreen
-                  ></iframe>
-                </div>
-              )}
+              {/* Barra de Éxito */}
+              <ProgressBar
+                completed={completedCount || 0}
+                total={days.length}
+              />
 
-              <div className="bg-gray-900 p-8 rounded-xl border border-gray-800">
-                <h2 className="text-2xl font-bold mb-4 text-green-400">
-                  Reto del Día {currentDay.day_number}
-                </h2>
-                <div className="text-gray-300 whitespace-pre-wrap">
-                  {currentDay.content}
-                </div>
-              </div>
-
-              {/* FORO DINÁMICO */}
-              <Forum labId={lab.id} dayNumber={currentDay.day_number} />
+              {/* Contenedor Interactivo (Video + Reto + Foro) */}
+              <LabContent
+                currentDay={currentDay}
+                labId={lab.id}
+                videoId={videoId}
+              />
             </>
           ) : (
             <div className="h-64 flex items-center justify-center border-2 border-dashed border-gray-800 rounded-xl text-gray-500">
