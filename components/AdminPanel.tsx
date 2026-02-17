@@ -74,7 +74,35 @@ type UserActivityItem = {
   created_at?: string | null;
 };
 
-type AdminTab = "hero" | "labs" | "days" | "comments" | "users";
+type LabPrice = {
+  id: string;
+  lab_id: string;
+  currency: "USD" | "MXN";
+  amount_cents: number;
+  is_active: boolean;
+  updated_at: string;
+};
+
+type Coupon = {
+  id: string;
+  code: string;
+  discount_type: "percent" | "fixed";
+  percent_off: number | null;
+  amount_off_cents: number | null;
+  currency: "USD" | "MXN" | null;
+  lab_id: string | null;
+  is_active: boolean;
+  expires_at: string | null;
+  created_at: string;
+};
+
+type AdminTab =
+  | "hero"
+  | "labs"
+  | "days"
+  | "comments"
+  | "users"
+  | "commerce";
 
 export default function AdminPanel({
   initialLabs,
@@ -122,6 +150,23 @@ export default function AdminPanel({
   const [activityItems, setActivityItems] = useState<UserActivityItem[]>([]);
   const [userMgmtRefreshTick, setUserMgmtRefreshTick] = useState(0);
   const [activeTab, setActiveTab] = useState<AdminTab>("hero");
+  const [isDeletingLabId, setIsDeletingLabId] = useState<string | null>(null);
+
+  const [pricingMsg, setPricingMsg] = useState("");
+  const [commercialRefreshTick, setCommercialRefreshTick] = useState(0);
+  const [priceCurrency, setPriceCurrency] = useState<"USD" | "MXN">("USD");
+  const [priceAmount, setPriceAmount] = useState("");
+  const [labPrices, setLabPrices] = useState<LabPrice[]>([]);
+
+  const [couponCode, setCouponCode] = useState("");
+  const [couponType, setCouponType] = useState<"percent" | "fixed">("percent");
+  const [couponPercent, setCouponPercent] = useState("");
+  const [couponAmount, setCouponAmount] = useState("");
+  const [couponCurrency, setCouponCurrency] = useState<"USD" | "MXN">("USD");
+  const [couponScope, setCouponScope] = useState<"all" | "lab">("all");
+  const [couponLabId, setCouponLabId] = useState<string>(initialLabs[0]?.id ?? "");
+  const [couponExpiresAt, setCouponExpiresAt] = useState("");
+  const [coupons, setCoupons] = useState<Coupon[]>([]);
 
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
@@ -324,6 +369,59 @@ export default function AdminPanel({
       active = false;
     };
   }, [selectedManagedUserId]);
+
+  useEffect(() => {
+    let active = true;
+
+    const loadCommercialData = async () => {
+      if (activeTab !== "commerce") return;
+
+      if (!selectedLab) {
+        if (active) {
+          setLabPrices([]);
+          setCoupons([]);
+          setPricingMsg("Selecciona un lab para configurar precios/comercial.");
+        }
+        return;
+      }
+
+      const [pricesRes, couponsRes] = await Promise.all([
+        fetch(`/api/admin/pricing?labId=${selectedLab}`),
+        fetch("/api/admin/coupons"),
+      ]);
+
+      const pricesPayload = (await pricesRes.json()) as {
+        prices?: LabPrice[];
+        error?: string;
+      };
+      const couponsPayload = (await couponsRes.json()) as {
+        coupons?: Coupon[];
+        error?: string;
+      };
+
+      if (!active) return;
+
+      if (!pricesRes.ok) {
+        setPricingMsg(pricesPayload.error ?? "No se pudieron cargar precios");
+      } else {
+        setLabPrices(pricesPayload.prices ?? []);
+        setPricingMsg("");
+      }
+
+      if (!couponsRes.ok) {
+        setPricingMsg(
+          couponsPayload.error ?? "No se pudieron cargar cupones/comercial",
+        );
+      } else {
+        setCoupons(couponsPayload.coupons ?? []);
+      }
+    };
+
+    void loadCommercialData();
+    return () => {
+      active = false;
+    };
+  }, [activeTab, commercialRefreshTick, selectedLab]);
 
   const createLab = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -573,8 +671,118 @@ export default function AdminPanel({
     setUserMgmtRefreshTick((prev) => prev + 1);
   };
 
+  const deleteLab = async (lab: AdminLab) => {
+    const confirmed = window.confirm(
+      `¿Eliminar por completo el Lab "${lab.title}"?\n\nEsto elimina días, comentarios, progreso y accesos asociados.`,
+    );
+    if (!confirmed) return;
+
+    setIsDeletingLabId(lab.id);
+    const response = await fetch(`/api/admin/labs/${lab.id}`, { method: "DELETE" });
+    const payload = (await response.json()) as { error?: string };
+    if (!response.ok) {
+      setMsg(payload.error ?? "No se pudo eliminar el lab");
+      setIsDeletingLabId(null);
+      return;
+    }
+
+    setMsg("Lab eliminado correctamente");
+    if (selectedLab === lab.id) {
+      setSelectedLab(null);
+      setEditingDayId(null);
+      setDays([]);
+    }
+    await fetchLabs();
+    setCommercialRefreshTick((prev) => prev + 1);
+    setIsDeletingLabId(null);
+  };
+
+  const savePrice = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!selectedLab) {
+      setPricingMsg("Selecciona un lab.");
+      return;
+    }
+
+    const amount = Number(priceAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setPricingMsg("Monto inválido.");
+      return;
+    }
+
+    setPricingMsg("Guardando precio...");
+    const response = await fetch("/api/admin/pricing", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        labId: selectedLab,
+        currency: priceCurrency,
+        amount,
+        isActive: true,
+      }),
+    });
+    const payload = (await response.json()) as { error?: string };
+    if (!response.ok) {
+      setPricingMsg(payload.error ?? "No se pudo guardar precio");
+      return;
+    }
+
+    setPricingMsg("Precio guardado");
+    setPriceAmount("");
+    setCommercialRefreshTick((prev) => prev + 1);
+  };
+
+  const createCoupon = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+
+    setPricingMsg("Guardando cupón...");
+    const response = await fetch("/api/admin/coupons", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        code: couponCode,
+        discountType: couponType,
+        percentOff: couponType === "percent" ? Number(couponPercent) : null,
+        amountOff: couponType === "fixed" ? Number(couponAmount) : null,
+        currency: couponType === "fixed" ? couponCurrency : null,
+        labId: couponScope === "lab" ? couponLabId || selectedLab : null,
+        expiresAt: couponExpiresAt || null,
+        isActive: true,
+      }),
+    });
+    const payload = (await response.json()) as { error?: string };
+    if (!response.ok) {
+      setPricingMsg(payload.error ?? "No se pudo crear cupón");
+      return;
+    }
+
+    setCouponCode("");
+    setCouponPercent("");
+    setCouponAmount("");
+    setCouponExpiresAt("");
+    setPricingMsg("Cupón creado");
+    setCommercialRefreshTick((prev) => prev + 1);
+  };
+
+  const toggleCouponActive = async (couponId: string, nextValue: boolean) => {
+    setPricingMsg("Actualizando cupón...");
+    const response = await fetch("/api/admin/coupons", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: couponId, isActive: nextValue }),
+    });
+    const payload = (await response.json()) as { error?: string };
+    if (!response.ok) {
+      setPricingMsg(payload.error ?? "No se pudo actualizar cupón");
+      return;
+    }
+    setPricingMsg(nextValue ? "Cupón activado" : "Cupón desactivado");
+    setCommercialRefreshTick((prev) => prev + 1);
+  };
+
   const handleSelectLab = (labId: string) => {
     setSelectedLab(labId);
+    setCouponLabId(labId);
     setEditingDayId(null);
     setDayMsg("");
     setDayTitle("");
@@ -612,6 +820,7 @@ export default function AdminPanel({
             { key: "days", label: "Días" },
             { key: "comments", label: "Comentarios" },
             { key: "users", label: "Usuarios" },
+            { key: "commerce", label: "Comercial" },
           ].map((tab) => (
             <button
               key={tab.key}
@@ -691,6 +900,45 @@ export default function AdminPanel({
             </button>
             {msg && <span className="ml-4 text-yellow-300">{msg}</span>}
           </form>
+
+          <div className="mt-8 border-t border-gray-700 pt-5">
+            <h3 className="text-sm uppercase tracking-widest text-gray-400 mb-3">
+              Labs existentes (eliminación completa)
+            </h3>
+            <div className="space-y-2">
+              {labs.map((lab) => (
+                <div
+                  key={lab.id}
+                  className="flex items-center justify-between gap-3 rounded border border-gray-700 bg-black/30 p-3"
+                >
+                  <div>
+                    <p className="text-sm font-semibold text-gray-100">{lab.title}</p>
+                    <p className="text-xs text-gray-500">{lab.description ?? "Sin descripción"}</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleSelectLab(lab.id)}
+                      className="px-3 py-1 text-xs rounded bg-gray-700 hover:bg-gray-600"
+                    >
+                      Seleccionar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void deleteLab(lab)}
+                      disabled={isDeletingLabId === lab.id}
+                      className="px-3 py-1 text-xs rounded bg-red-900/70 hover:bg-red-800 disabled:opacity-50"
+                    >
+                      {isDeletingLabId === lab.id ? "Eliminando..." : "Eliminar Lab"}
+                    </button>
+                  </div>
+                </div>
+              ))}
+              {labs.length === 0 && (
+                <p className="text-sm text-gray-400">No hay labs para mostrar.</p>
+              )}
+            </div>
+          </div>
           </section>
         )}
 
@@ -1208,6 +1456,225 @@ export default function AdminPanel({
           </div>
           </section>
         )}
+
+        {activeTab === "commerce" && (
+          <section className="bg-gray-800 p-6 rounded-lg border border-gray-700 space-y-6">
+            <h2 className="text-xl font-bold text-emerald-300">
+              6. Comercial: Precios y Cupones
+            </h2>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="rounded border border-gray-700 p-4 bg-black/30 space-y-3">
+                <h3 className="font-semibold text-emerald-200">Configurar precios por lab</h3>
+                <div>
+                  <label className="text-xs text-gray-400">Lab</label>
+                  <select
+                    value={selectedLab ?? ""}
+                    onChange={(e) => handleSelectLab(e.target.value)}
+                    className="w-full p-2 rounded bg-black border border-gray-600"
+                  >
+                    <option value="" disabled>
+                      Selecciona un lab
+                    </option>
+                    {labs.map((lab) => (
+                      <option key={lab.id} value={lab.id}>
+                        {lab.title}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <form onSubmit={savePrice} className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <select
+                    value={priceCurrency}
+                    onChange={(e) => setPriceCurrency(e.target.value as "USD" | "MXN")}
+                    className="p-2 rounded bg-black border border-gray-600"
+                  >
+                    <option value="USD">USD</option>
+                    <option value="MXN">MXN</option>
+                  </select>
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={priceAmount}
+                    onChange={(e) => setPriceAmount(e.target.value)}
+                    placeholder="Monto"
+                    className="p-2 rounded bg-black border border-gray-600"
+                  />
+                  <button
+                    type="submit"
+                    className="px-3 py-2 rounded bg-emerald-700 hover:bg-emerald-600 text-sm font-bold"
+                  >
+                    Guardar precio
+                  </button>
+                </form>
+
+                <div className="space-y-2">
+                  {(labPrices ?? []).map((price) => (
+                    <div
+                      key={price.id}
+                      className="rounded border border-gray-700 p-2 bg-black/30 text-sm flex justify-between"
+                    >
+                      <span>{price.currency}</span>
+                      <span>{formatMoney(price.amount_cents, price.currency)}</span>
+                    </div>
+                  ))}
+                  {labPrices.length === 0 && (
+                    <p className="text-sm text-gray-400">Sin precios configurados para este lab.</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded border border-gray-700 p-4 bg-black/30 space-y-3">
+                <h3 className="font-semibold text-emerald-200">Crear cupón</h3>
+                <form onSubmit={createCoupon} className="space-y-3">
+                  <input
+                    type="text"
+                    value={couponCode}
+                    onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
+                    placeholder="Código (ej: ASTRO20)"
+                    className="w-full p-2 rounded bg-black border border-gray-600"
+                    required
+                  />
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <select
+                      value={couponType}
+                      onChange={(e) =>
+                        setCouponType(e.target.value as "percent" | "fixed")
+                      }
+                      className="p-2 rounded bg-black border border-gray-600"
+                    >
+                      <option value="percent">% Porcentaje</option>
+                      <option value="fixed">Monto fijo</option>
+                    </select>
+                    <select
+                      value={couponScope}
+                      onChange={(e) => setCouponScope(e.target.value as "all" | "lab")}
+                      className="p-2 rounded bg-black border border-gray-600"
+                    >
+                      <option value="all">Aplica a todos</option>
+                      <option value="lab">Solo un lab</option>
+                    </select>
+                  </div>
+
+                  {couponType === "percent" ? (
+                    <input
+                      type="number"
+                      min={1}
+                      max={100}
+                      value={couponPercent}
+                      onChange={(e) => setCouponPercent(e.target.value)}
+                      placeholder="Porcentaje (1-100)"
+                      className="w-full p-2 rounded bg-black border border-gray-600"
+                      required
+                    />
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        value={couponAmount}
+                        onChange={(e) => setCouponAmount(e.target.value)}
+                        placeholder="Monto descuento"
+                        className="p-2 rounded bg-black border border-gray-600"
+                        required
+                      />
+                      <select
+                        value={couponCurrency}
+                        onChange={(e) =>
+                          setCouponCurrency(e.target.value as "USD" | "MXN")
+                        }
+                        className="p-2 rounded bg-black border border-gray-600"
+                      >
+                        <option value="USD">USD</option>
+                        <option value="MXN">MXN</option>
+                      </select>
+                    </div>
+                  )}
+
+                  {couponScope === "lab" && (
+                    <select
+                      value={couponLabId || selectedLab || ""}
+                      onChange={(e) => setCouponLabId(e.target.value)}
+                      className="w-full p-2 rounded bg-black border border-gray-600"
+                      required
+                    >
+                      <option value="" disabled>
+                        Selecciona lab del cupón
+                      </option>
+                      {labs.map((lab) => (
+                        <option key={lab.id} value={lab.id}>
+                          {lab.title}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+
+                  <input
+                    type="datetime-local"
+                    value={couponExpiresAt}
+                    onChange={(e) => setCouponExpiresAt(e.target.value)}
+                    className="w-full p-2 rounded bg-black border border-gray-600"
+                  />
+
+                  <button
+                    type="submit"
+                    className="w-full px-3 py-2 rounded bg-emerald-700 hover:bg-emerald-600 text-sm font-bold"
+                  >
+                    Crear cupón
+                  </button>
+                </form>
+              </div>
+            </div>
+
+            <div className="rounded border border-gray-700 p-4 bg-black/30">
+              <h3 className="font-semibold text-emerald-200 mb-3">Cupones existentes</h3>
+              <div className="space-y-2 max-h-72 overflow-auto pr-1">
+                {coupons.map((coupon) => (
+                  <div
+                    key={coupon.id}
+                    className="rounded border border-gray-700 p-3 bg-black/30 flex items-start justify-between gap-3"
+                  >
+                    <div className="text-sm">
+                      <p className="font-semibold text-gray-100">{coupon.code}</p>
+                      <p className="text-xs text-gray-400">
+                        {coupon.discount_type === "percent"
+                          ? `${coupon.percent_off ?? 0}%`
+                          : `${formatMoney(coupon.amount_off_cents ?? 0, coupon.currency ?? "USD")} fijo`}
+                        {" · "}
+                        {coupon.lab_id ? "Lab específico" : "Global"}
+                        {" · "}
+                        {coupon.is_active ? "Activo" : "Inactivo"}
+                      </p>
+                      {coupon.expires_at && (
+                        <p className="text-[11px] text-gray-500">
+                          Expira: {new Date(coupon.expires_at).toLocaleString()}
+                        </p>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void toggleCouponActive(coupon.id, !coupon.is_active)}
+                      className={`px-3 py-1 text-xs rounded ${
+                        coupon.is_active
+                          ? "bg-red-900/70 hover:bg-red-800"
+                          : "bg-emerald-800 hover:bg-emerald-700"
+                      }`}
+                    >
+                      {coupon.is_active ? "Desactivar" : "Activar"}
+                    </button>
+                  </div>
+                ))}
+                {coupons.length === 0 && (
+                  <p className="text-sm text-gray-400">No hay cupones todavía.</p>
+                )}
+              </div>
+            </div>
+
+            {pricingMsg && <p className="text-sm text-yellow-300">{pricingMsg}</p>}
+          </section>
+        )}
       </div>
     </div>
   );
@@ -1217,4 +1684,12 @@ function getNextDayNumber(days: AdminDay[]): number {
   if (days.length === 0) return 1;
   const maxDay = Math.max(...days.map((day) => day.day_number));
   return Number.isFinite(maxDay) ? maxDay + 1 : 1;
+}
+
+function formatMoney(amountCents: number, currency: "USD" | "MXN" | string) {
+  const safeAmount = Number.isFinite(amountCents) ? amountCents : 0;
+  return new Intl.NumberFormat("es-MX", {
+    style: "currency",
+    currency: currency === "USD" ? "USD" : "MXN",
+  }).format(safeAmount / 100);
 }
