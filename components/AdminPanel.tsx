@@ -3,6 +3,7 @@
 import { createClient } from "@/utils/supabase/client";
 import {
   createBlock,
+  parseDayBlocks,
   serializeDayBlocks,
   type DayBlock,
   type DayBlockType,
@@ -29,6 +30,14 @@ type AdminComment = {
   created_at: string;
 };
 
+type AdminDay = {
+  id: string;
+  day_number: number;
+  title: string;
+  video_url: string | null;
+  content: string | null;
+};
+
 export default function AdminPanel({ initialLabs }: AdminPanelProps) {
   const [labs, setLabs] = useState<AdminLab[]>(initialLabs);
 
@@ -43,6 +52,10 @@ export default function AdminPanel({ initialLabs }: AdminPanelProps) {
   const [dayTitle, setDayTitle] = useState("");
   const [blocks, setBlocks] = useState<DayBlock[]>([createBlock("text")]);
   const [dayMsg, setDayMsg] = useState("");
+  const [days, setDays] = useState<AdminDay[]>([]);
+  const [daysMsg, setDaysMsg] = useState("");
+  const [daysRefreshTick, setDaysRefreshTick] = useState(0);
+  const [editingDayId, setEditingDayId] = useState<string | null>(null);
 
   const [commentDayFilter, setCommentDayFilter] = useState<string>("");
   const [comments, setComments] = useState<AdminComment[]>([]);
@@ -64,6 +77,49 @@ export default function AdminPanel({ initialLabs }: AdminPanelProps) {
       setSelectedLab((prev) => prev ?? nextLabs[0]?.id ?? null);
     }
   }, [supabase]);
+
+  useEffect(() => {
+    let active = true;
+
+    const loadDays = async () => {
+      if (!selectedLab) {
+        if (active) {
+          setDays([]);
+          setDaysMsg("");
+        }
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from("days")
+        .select("id, day_number, title, video_url, content")
+        .eq("lab_id", selectedLab)
+        .order("day_number", { ascending: true });
+
+      if (!active) return;
+
+      if (error) {
+        setDaysMsg("Error al cargar dias: " + error.message);
+        return;
+      }
+
+      const nextDays = (data as AdminDay[] | null) ?? [];
+      setDays(nextDays);
+      setDaysMsg("");
+
+      if (editingDayId && !nextDays.some((d) => d.id === editingDayId)) {
+        setEditingDayId(null);
+      }
+      if (!editingDayId) {
+        setDayNumber(getNextDayNumber(nextDays));
+      }
+    };
+
+    void loadDays();
+    return () => {
+      active = false;
+    };
+  }, [daysRefreshTick, editingDayId, selectedLab, supabase]);
 
   useEffect(() => {
     let active = true;
@@ -123,7 +179,7 @@ export default function AdminPanel({ initialLabs }: AdminPanelProps) {
     await fetchLabs();
   };
 
-  const createDay = async (e: React.FormEvent<HTMLFormElement>) => {
+  const saveDay = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!selectedLab) return;
     setDayMsg("Guardando dia...");
@@ -154,25 +210,53 @@ export default function AdminPanel({ initialLabs }: AdminPanelProps) {
     const firstVideoBlock = normalizedBlocks.find(
       (block) => block.type === "video" && block.url,
     );
-    const { error } = await supabase.from("days").insert([
-      {
-        lab_id: selectedLab,
-        day_number: dayNumber,
-        title: dayTitle,
-        video_url: firstVideoBlock?.url ?? null,
-        content: serializeDayBlocks(normalizedBlocks),
-      },
-    ]);
+    const payload = {
+      day_number: dayNumber,
+      title: dayTitle,
+      video_url: firstVideoBlock?.url ?? null,
+      content: serializeDayBlocks(normalizedBlocks),
+    };
+    const { error } = editingDayId
+      ? await supabase.from("days").update(payload).eq("id", editingDayId)
+      : await supabase.from("days").insert([
+          {
+            lab_id: selectedLab,
+            ...payload,
+          },
+        ]);
 
     if (error) {
       setDayMsg("Error: " + error.message);
       return;
     }
 
-    setDayMsg("Dia guardado correctamente");
+    if (editingDayId) {
+      setDayMsg("Dia actualizado correctamente");
+    } else {
+      setDayMsg("Dia guardado correctamente");
+      setDayTitle("");
+      setBlocks([createBlock("text")]);
+      setDayNumber((prev) => prev + 1);
+    }
+
+    setDaysRefreshTick((prev) => prev + 1);
+  };
+
+  const startCreateDay = () => {
+    setEditingDayId(null);
+    setDayMsg("");
     setDayTitle("");
     setBlocks([createBlock("text")]);
-    setDayNumber((prev) => prev + 1);
+    setDayNumber(getNextDayNumber(days));
+  };
+
+  const startEditDay = (day: AdminDay) => {
+    setEditingDayId(day.id);
+    setDayNumber(day.day_number);
+    setDayTitle(day.title);
+    const parsedBlocks = parseDayBlocks(day.content, day.video_url);
+    setBlocks(parsedBlocks.length > 0 ? parsedBlocks : [createBlock("text")]);
+    setDayMsg(`Editando dia ${day.day_number}`);
   };
 
   const addBlock = (type: DayBlockType) => {
@@ -210,6 +294,44 @@ export default function AdminPanel({ initialLabs }: AdminPanelProps) {
       return;
     }
     setComments((prev) => prev.filter((comment) => comment.id !== commentId));
+  };
+
+  const deleteDay = async () => {
+    if (!editingDayId) return;
+
+    const targetDay = days.find((day) => day.id === editingDayId);
+    if (!targetDay) return;
+
+    const confirmed = window.confirm(
+      `¿Seguro que quieres eliminar el Dia ${targetDay.day_number}: "${targetDay.title}"?`,
+    );
+    if (!confirmed) return;
+
+    setDayMsg("Eliminando dia...");
+
+    const { error } = await supabase.from("days").delete().eq("id", editingDayId);
+    if (error) {
+      setDayMsg("Error al eliminar: " + error.message);
+      return;
+    }
+
+    const nextDays = days.filter((day) => day.id !== editingDayId);
+    setDays(nextDays);
+    setEditingDayId(null);
+    setDayTitle("");
+    setBlocks([createBlock("text")]);
+    setDayNumber(getNextDayNumber(nextDays));
+    setDayMsg(`Dia ${targetDay.day_number} eliminado`);
+    setDaysRefreshTick((prev) => prev + 1);
+  };
+
+  const handleSelectLab = (labId: string) => {
+    setSelectedLab(labId);
+    setEditingDayId(null);
+    setDayMsg("");
+    setDayTitle("");
+    setBlocks([createBlock("text")]);
+    setDayNumber(1);
   };
 
   const handleLogout = async () => {
@@ -281,13 +403,49 @@ export default function AdminPanel({ initialLabs }: AdminPanelProps) {
                 {labs.map((lab) => (
                   <li
                     key={lab.id}
-                    onClick={() => setSelectedLab(lab.id)}
+                    onClick={() => handleSelectLab(lab.id)}
                     className={`p-2 rounded cursor-pointer transition ${selectedLab === lab.id ? "bg-green-900 text-white border border-green-500" : "bg-gray-900 text-gray-400 hover:bg-gray-700"}`}
                   >
                     {lab.title}
                   </li>
                 ))}
               </ul>
+
+              <div className="mt-8">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-sm text-gray-400 uppercase font-bold">
+                    Dias existentes
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={startCreateDay}
+                    className="text-xs px-2 py-1 rounded bg-gray-700 hover:bg-gray-600"
+                  >
+                    Nuevo
+                  </button>
+                </div>
+                {daysMsg && <p className="text-xs text-yellow-300 mb-2">{daysMsg}</p>}
+                <ul className="space-y-2 max-h-64 overflow-auto pr-1">
+                  {days.map((day) => (
+                    <li
+                      key={day.id}
+                      className={`p-2 rounded border ${editingDayId === day.id ? "border-green-500 bg-green-950/30" : "border-gray-700 bg-black/40"}`}
+                    >
+                      <button
+                        type="button"
+                        className="w-full text-left"
+                        onClick={() => startEditDay(day)}
+                      >
+                        <p className="text-xs text-gray-400">Dia {day.day_number}</p>
+                        <p className="text-sm text-gray-100 truncate">{day.title}</p>
+                      </button>
+                    </li>
+                  ))}
+                  {days.length === 0 && (
+                    <li className="text-xs text-gray-500">Aun no hay dias.</li>
+                  )}
+                </ul>
+              </div>
             </div>
 
             <div className="col-span-2">
@@ -296,10 +454,21 @@ export default function AdminPanel({ initialLabs }: AdminPanelProps) {
                   Selecciona un curso de la lista para agregar contenido.
                 </div>
               ) : (
-                <form onSubmit={createDay} className="space-y-4 animate-fadeIn">
-                  <h3 className="font-bold text-lg text-white mb-4">
-                    Constructor de Dia
-                  </h3>
+                <form onSubmit={saveDay} className="space-y-4 animate-fadeIn">
+                  <div className="flex items-center justify-between gap-3">
+                    <h3 className="font-bold text-lg text-white">
+                      {editingDayId ? "Editar Dia" : "Constructor de Dia"}
+                    </h3>
+                    {editingDayId && (
+                      <button
+                        type="button"
+                        onClick={startCreateDay}
+                        className="text-xs px-3 py-1 rounded bg-gray-700 hover:bg-gray-600"
+                      >
+                        Salir de edicion
+                      </button>
+                    )}
+                  </div>
 
                   <div className="flex gap-4">
                     <div className="w-24">
@@ -439,12 +608,23 @@ export default function AdminPanel({ initialLabs }: AdminPanelProps) {
                     ))}
                   </div>
 
-                  <button
-                    type="submit"
-                    className="w-full bg-green-600 hover:bg-green-700 py-2 rounded font-bold"
-                  >
-                    Guardar Dia
-                  </button>
+                  <div className="flex gap-3">
+                    <button
+                      type="submit"
+                      className="flex-1 bg-green-600 hover:bg-green-700 py-2 rounded font-bold"
+                    >
+                      {editingDayId ? "Actualizar Dia" : "Guardar Dia"}
+                    </button>
+                    {editingDayId && (
+                      <button
+                        type="button"
+                        onClick={() => void deleteDay()}
+                        className="px-4 py-2 rounded font-bold bg-red-700 hover:bg-red-600"
+                      >
+                        Eliminar Dia
+                      </button>
+                    )}
+                  </div>
                   {dayMsg && (
                     <p className="text-center text-yellow-300 mt-2">{dayMsg}</p>
                   )}
@@ -525,4 +705,10 @@ export default function AdminPanel({ initialLabs }: AdminPanelProps) {
       </div>
     </div>
   );
+}
+
+function getNextDayNumber(days: AdminDay[]): number {
+  if (days.length === 0) return 1;
+  const maxDay = Math.max(...days.map((day) => day.day_number));
+  return Number.isFinite(maxDay) ? maxDay + 1 : 1;
 }
