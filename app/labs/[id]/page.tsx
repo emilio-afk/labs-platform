@@ -103,25 +103,25 @@ export default async function LabDetails({
   const initialDayForView = isPreview ? 1 : currentDayNumber;
 
   return (
-    <div className="min-h-screen bg-black text-white">
-      <div className="bg-[color:rgba(1,25,99,0.35)] border-b border-white/10 p-6">
+    <div className="min-h-screen bg-[var(--ast-black)] text-white">
+      <div className="bg-[linear-gradient(90deg,rgba(1,25,99,0.65),rgba(10,86,198,0.45),rgba(4,164,90,0.22))] border-b border-[var(--ast-sky)]/25 p-6">
         <div className="max-w-6xl mx-auto">
           <Link
             href="/"
-            className="text-[var(--ast-yellow)] text-sm mb-1 block hover:underline"
+            className="text-[var(--ast-sky)] text-sm mb-1 block hover:text-[var(--ast-mint)] hover:underline"
           >
             ← Volver al inicio
           </Link>
           <h1 className="text-2xl font-bold">{lab.title}</h1>
           {isPreview && (
             <div className="mt-3 flex flex-wrap items-center gap-3">
-              <span className="text-xs px-3 py-1 rounded-full bg-[var(--ast-rust)]/80 border border-[var(--ast-coral)]">
+              <span className="text-xs px-3 py-1 rounded-full bg-[var(--ast-cobalt)]/60 border border-[var(--ast-sky)]/60">
                 {guestMode ? "Vista previa: solo Día 1" : "Acceso parcial: solo Día 1"}
               </span>
               {guestMode ? (
                 <Link
                   href="/login"
-                  className="text-xs px-3 py-1 rounded-full bg-[var(--ast-emerald)] hover:bg-[var(--ast-forest)] transition"
+                  className="text-xs px-3 py-1 rounded-full bg-[var(--ast-mint)] text-[var(--ast-black)] hover:bg-[var(--ast-forest)] transition"
                 >
                   Crear cuenta para desbloquear todo
                 </Link>

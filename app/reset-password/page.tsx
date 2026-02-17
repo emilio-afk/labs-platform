@@ -2,6 +2,7 @@
 
 import { createClient } from "@/utils/supabase/client";
 import Link from "next/link";
+import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 
 export default function ResetPasswordPage() {
@@ -85,13 +86,23 @@ export default function ResetPasswordPage() {
 
   return (
     <div className="relative flex min-h-screen items-center justify-center bg-[var(--ast-black)] text-[var(--ast-white)] p-4">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(4,164,90,0.15),transparent_40%),radial-gradient(circle_at_bottom,rgba(11,25,99,0.4),transparent_45%)]" />
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(10,86,198,0.35),transparent_45%),radial-gradient(circle_at_85%_20%,rgba(4,164,90,0.18),transparent_30%),radial-gradient(circle_at_bottom,rgba(1,25,99,0.6),transparent_55%)]" />
 
-      <div className="relative w-full max-w-lg rounded-2xl border border-white/15 bg-black/55 backdrop-blur-sm p-7 space-y-5 shadow-2xl">
-        <h1 className="text-2xl font-black text-center tracking-tight">
+      <div className="relative w-full max-w-lg rounded-2xl border border-[var(--ast-sky)]/35 bg-[linear-gradient(180deg,rgba(10,86,198,0.2),rgba(1,25,99,0.38))] backdrop-blur-sm p-7 space-y-5 shadow-2xl">
+        <div className="flex justify-center">
+          <Image
+            src="/logo-astrolab-cobalt.png"
+            alt="Astrolab"
+            width={210}
+            height={39}
+            className="h-10 w-auto"
+            priority
+          />
+        </div>
+        <h1 className="text-2xl font-black text-center tracking-tight text-[var(--ast-bone)]">
           Restablecer contraseña
         </h1>
-        <p className="text-center text-sm text-gray-300">
+        <p className="text-center text-sm text-[var(--ast-bone)]/80">
           Este proceso es independiente del login y signup.
         </p>
 
@@ -113,7 +124,7 @@ export default function ResetPasswordPage() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full inline-flex items-center justify-center gap-2 rounded-full bg-[var(--ast-yellow)] px-5 py-2.5 text-sm font-bold text-[var(--ast-black)] hover:opacity-90 transition disabled:opacity-60"
+            className="w-full inline-flex items-center justify-center gap-2 rounded-full bg-[var(--ast-mint)] px-5 py-2.5 text-sm font-bold text-[var(--ast-black)] hover:bg-[var(--ast-forest)] transition disabled:opacity-60"
           >
             {loading && (
               <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-black/30 border-t-black" />
@@ -129,7 +140,7 @@ export default function ResetPasswordPage() {
                 ? "text-red-200 border-red-500/40 bg-red-950/30"
                 : messageType === "success"
                   ? "text-green-200 border-green-500/40 bg-green-950/30"
-                  : "text-blue-100 border-blue-500/40 bg-blue-950/30"
+                  : "text-blue-100 border-[var(--ast-sky)]/40 bg-[var(--ast-cobalt)]/30"
             }`}
           >
             {message}
@@ -137,7 +148,10 @@ export default function ResetPasswordPage() {
         )}
 
         <div className="text-center">
-          <Link href="/login" className="text-sm text-[var(--ast-sky)] hover:text-white">
+          <Link
+            href="/login"
+            className="text-sm text-[var(--ast-sky)] hover:text-[var(--ast-mint)]"
+          >
             Volver a login
           </Link>
         </div>
@@ -162,7 +176,7 @@ function Field({ type, placeholder, value, onChange, autoComplete }: FieldProps)
       value={value}
       onChange={(e) => onChange(e.target.value)}
       autoComplete={autoComplete}
-      className="w-full rounded-lg border border-white/15 bg-black/50 p-3 text-white placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[var(--ast-emerald)]/60 focus:border-transparent transition"
+      className="w-full rounded-lg border border-[var(--ast-sky)]/20 bg-[var(--ast-indigo)]/30 p-3 text-white placeholder:text-[var(--ast-bone)]/45 focus:outline-none focus:ring-2 focus:ring-[var(--ast-mint)]/60 focus:border-transparent transition"
       required
     />
   );
