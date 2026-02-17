@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import Forum from "@/components/Forum";
 import ProgressButton from "@/components/ProgressButton";
+import VideoPlayer from "@/components/VideoPlayer";
 
 export default async function LabDetails({
   params,
