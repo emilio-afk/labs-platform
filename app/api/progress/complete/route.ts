@@ -25,6 +25,25 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Payload invalido" }, { status: 400 });
   }
 
+  const [{ data: profile }, { data: entitlement }] = await Promise.all([
+    supabase.from("profiles").select("role").eq("id", user.id).maybeSingle(),
+    supabase
+      .from("lab_entitlements")
+      .select("id")
+      .eq("user_id", user.id)
+      .eq("lab_id", labId)
+      .eq("status", "active")
+      .maybeSingle(),
+  ]);
+  const isAdmin = profile?.role === "admin";
+
+  if (!isAdmin && !entitlement) {
+    return NextResponse.json(
+      { error: "No tienes acceso completo a este lab" },
+      { status: 403 },
+    );
+  }
+
   const { data: day } = await supabase
     .from("days")
     .select("id, day_number")

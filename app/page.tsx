@@ -1,4 +1,5 @@
 import { createClient } from "@/utils/supabase/server";
+import { createAdminClient } from "@/utils/supabase/admin";
 import Link from "next/link";
 import LogoutButton from "@/components/LogoutButton";
 
@@ -19,13 +20,11 @@ const DEFAULT_HERO_SUBTITLE =
 
 export default async function Home() {
   const supabase = await createClient();
+  const adminSupabase = createAdminClient();
 
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  const { data: labs } = (await supabase
-    .from("labs")
-    .select("id, title, description")) as { data: LabCard[] | null };
   const { data: profile } = user
     ? await supabase
         .from("profiles")
@@ -34,6 +33,41 @@ export default async function Home() {
         .maybeSingle()
     : { data: null };
   const isAdmin = profile?.role === "admin";
+  let labs: LabCard[] = [];
+
+  if (!user) {
+    const guestQueryClient = adminSupabase ?? supabase;
+    const { data: guestLabs } = (await guestQueryClient
+      .from("labs")
+      .select("id, title, description")
+      .order("created_at", { ascending: false })) as { data: LabCard[] | null };
+    labs = guestLabs ?? [];
+  } else if (isAdmin) {
+    const { data: adminLabs } = (await supabase
+      .from("labs")
+      .select("id, title, description")
+      .order("created_at", { ascending: false })) as { data: LabCard[] | null };
+    labs = adminLabs ?? [];
+  } else {
+    const { data: entitlements } = await supabase
+      .from("lab_entitlements")
+      .select("lab_id")
+      .eq("user_id", user.id)
+      .eq("status", "active");
+    const labIds =
+      entitlements
+        ?.map((row) => row.lab_id)
+        .filter((id): id is string => typeof id === "string") ?? [];
+
+    if (labIds.length > 0) {
+      const { data: paidLabs } = (await supabase
+        .from("labs")
+        .select("id, title, description")
+        .in("id", labIds)
+        .order("created_at", { ascending: false })) as { data: LabCard[] | null };
+      labs = paidLabs ?? [];
+    }
+  }
   const { data: settings } = (await supabase
     .from("app_settings")
     .select("hero_title, hero_subtitle")
@@ -87,8 +121,17 @@ export default async function Home() {
 
       <main className="max-w-7xl mx-auto px-6 pb-24">
         {user ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {labs?.map((lab) => (
+          <div className="space-y-6">
+            {!isAdmin && labs.length === 0 && (
+              <div className="rounded-2xl border border-dashed border-white/20 p-8 text-center bg-black/20">
+                <h2 className="text-xl font-bold mb-2">Sin Labs desbloqueados</h2>
+                <p className="text-gray-400">
+                  Tu cuenta aún no tiene acceso activo. Cuando compres un lab, aparecerá aquí.
+                </p>
+              </div>
+            )}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+            {labs.map((lab) => (
               <Link
                 key={lab.id}
                 href={`/labs/${lab.id}`}
@@ -118,6 +161,7 @@ export default async function Home() {
                 </div>
               </Link>
             ))}
+            </div>
           </div>
         ) : (
           <div className="space-y-10">
@@ -139,8 +183,13 @@ export default async function Home() {
                 </Link>
               </div>
 
-              <div className="flex gap-4 overflow-x-auto pb-3 snap-x snap-mandatory">
-                {(labs ?? []).map((lab) => (
+              {labs.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-white/20 p-6 text-gray-300 bg-black/20">
+                  No se pudieron cargar labs públicos. Revisa permisos de lectura o configura `SUPABASE_SERVICE_ROLE_KEY`.
+                </div>
+              ) : (
+                <div className="flex gap-4 overflow-x-auto pb-3 snap-x snap-mandatory">
+                {labs.map((lab) => (
                   <Link
                     key={lab.id}
                     href={`/labs/${lab.id}?day=1`}
@@ -158,7 +207,8 @@ export default async function Home() {
                     </div>
                   </Link>
                 ))}
-              </div>
+                </div>
+              )}
             </section>
 
             <section className="text-center py-10 bg-black/20 border border-dashed border-white/15 rounded-3xl">

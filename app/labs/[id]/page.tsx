@@ -1,4 +1,5 @@
 import { createClient } from "@/utils/supabase/server";
+import { createAdminClient } from "@/utils/supabase/admin";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import LabWorkspace, { type WorkspaceDay } from "@/components/LabWorkspace";
@@ -32,19 +33,43 @@ export default async function LabDetails({
   const currentDayNumber =
     Number.isFinite(parsedDay) && parsedDay > 0 ? parsedDay : 1;
   const supabase = await createClient();
+  const adminSupabase = createAdminClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  const isPreview = !user;
+  const guestMode = !user;
+
+  const profile = user
+    ? (
+        await supabase
+          .from("profiles")
+          .select("role")
+          .eq("id", user.id)
+          .maybeSingle()
+      ).data
+    : null;
+  const isAdmin = profile?.role === "admin";
+  const { data: entitlement } = user
+    ? await supabase
+        .from("lab_entitlements")
+        .select("id")
+        .eq("user_id", user.id)
+        .eq("lab_id", id)
+        .eq("status", "active")
+        .maybeSingle()
+    : { data: null };
+  const hasPaidAccess = Boolean(entitlement);
+  const isPreview = guestMode || (!isAdmin && !hasPaidAccess);
+  const dataClient = guestMode ? (adminSupabase ?? supabase) : supabase;
 
   const [labResult, daysResult, progressResult] = await Promise.all([
-    supabase.from("labs").select("id, title, description").eq("id", id).single(),
-    supabase
+    dataClient.from("labs").select("id, title, description").eq("id", id).single(),
+    dataClient
       .from("days")
       .select("id, lab_id, day_number, title, video_url, content")
       .eq("lab_id", id)
       .order("day_number", { ascending: true }),
-    user
+    user && !isPreview
       ? supabase
           .from("progress")
           .select("day_number")
@@ -57,6 +82,18 @@ export default async function LabDetails({
   const days = daysResult.data as LabDay[] | null;
 
   if (!lab || !days) notFound();
+
+  const workspaceDays = isPreview
+    ? days.map((dayItem) =>
+        dayItem.day_number === 1
+          ? dayItem
+          : {
+              ...dayItem,
+              video_url: null,
+              content: null,
+            },
+      )
+    : days;
 
   const completedDays = user
     ? ((progressResult.data as { day_number: number | null }[] | null)
@@ -79,14 +116,20 @@ export default async function LabDetails({
           {isPreview && (
             <div className="mt-3 flex flex-wrap items-center gap-3">
               <span className="text-xs px-3 py-1 rounded-full bg-[var(--ast-rust)]/80 border border-[var(--ast-coral)]">
-                Vista previa: solo Día 1
+                {guestMode ? "Vista previa: solo Día 1" : "Acceso parcial: solo Día 1"}
               </span>
-              <Link
-                href="/login"
-                className="text-xs px-3 py-1 rounded-full bg-[var(--ast-emerald)] hover:bg-[var(--ast-forest)] transition"
-              >
-                Crear cuenta para desbloquear todo
-              </Link>
+              {guestMode ? (
+                <Link
+                  href="/login"
+                  className="text-xs px-3 py-1 rounded-full bg-[var(--ast-emerald)] hover:bg-[var(--ast-forest)] transition"
+                >
+                  Crear cuenta para desbloquear todo
+                </Link>
+              ) : (
+                <span className="text-xs px-3 py-1 rounded-full bg-black/30 border border-white/20">
+                  Compra este lab para desbloquear todos los días
+                </span>
+              )}
             </div>
           )}
         </div>
@@ -95,7 +138,7 @@ export default async function LabDetails({
       <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-8 p-8">
         <LabWorkspace
           labId={id}
-          days={days as WorkspaceDay[]}
+          days={workspaceDays as WorkspaceDay[]}
           initialDayNumber={initialDayForView}
           completedDayNumbers={completedDays}
           previewMode={isPreview}
