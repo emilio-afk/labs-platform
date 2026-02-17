@@ -97,6 +97,7 @@ export default async function LabDetails({
                 total={days.length}
               />
               <LabContent
+                key={currentDay.id}
                 currentDay={currentDay}
                 labId={lab.id}
                 videoId={videoId || ""}
