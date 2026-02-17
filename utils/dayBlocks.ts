@@ -1,25 +1,90 @@
-export type DayBlockType = "text" | "video" | "audio" | "image";
+export type DayBlockType =
+  | "text"
+  | "video"
+  | "audio"
+  | "image"
+  | "file"
+  | "checklist"
+  | "quiz";
+
+export type DayChecklistItem = {
+  id: string;
+  text: string;
+};
+
+export type DayQuizQuestion = {
+  id: string;
+  prompt: string;
+  options: string[];
+  correctIndex: number | null;
+  explanation?: string;
+};
 
 export type DayBlock = {
   id: string;
   type: DayBlockType;
+  title?: string;
   text?: string;
   url?: string;
   caption?: string;
+  items?: DayChecklistItem[];
+  questions?: DayQuizQuestion[];
 };
 
 type DayContentPayload = {
-  version: 1;
+  version: 2;
   blocks: DayBlock[];
 };
 
-export function createBlock(type: DayBlockType): DayBlock {
-  const id =
+function createId(prefix: string): string {
+  return (
     globalThis.crypto?.randomUUID?.() ??
-    `block_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+    `${prefix}_${Date.now()}_${Math.floor(Math.random() * 1000)}`
+  );
+}
+
+export function createChecklistItem(text = ""): DayChecklistItem {
+  return {
+    id: createId("check"),
+    text,
+  };
+}
+
+export function createQuizQuestion(): DayQuizQuestion {
+  return {
+    id: createId("quiz"),
+    prompt: "",
+    options: ["", ""],
+    correctIndex: 0,
+    explanation: "",
+  };
+}
+
+export function createBlock(type: DayBlockType): DayBlock {
+  const id = createId("block");
+
   if (type === "text") {
     return { id, type, text: "" };
   }
+
+  if (type === "checklist") {
+    return {
+      id,
+      type,
+      title: "",
+      items: [createChecklistItem()],
+    };
+  }
+
+  if (type === "quiz") {
+    return {
+      id,
+      type,
+      title: "",
+      questions: [createQuizQuestion()],
+    };
+  }
+
   return { id, type, url: "", caption: "" };
 }
 
@@ -32,18 +97,13 @@ export function extractYouTubeVideoId(url: string | null | undefined): string | 
 }
 
 export function serializeDayBlocks(blocks: DayBlock[]): string {
-  const cleanBlocks = blocks.map((block) => ({
-    id: block.id,
-    type: block.type,
-    text: typeof block.text === "string" ? block.text : undefined,
-    url: typeof block.url === "string" ? block.url : undefined,
-    caption: typeof block.caption === "string" ? block.caption : undefined,
-  }));
+  const cleanBlocks = blocks.map((block) => sanitizeBlock(block));
 
   const payload: DayContentPayload = {
-    version: 1,
+    version: 2,
     blocks: cleanBlocks,
   };
+
   return JSON.stringify(payload);
 }
 
@@ -76,6 +136,41 @@ export function parseDayBlocks(
   return blocks;
 }
 
+function sanitizeBlock(block: DayBlock): DayBlock {
+  if (block.type === "text") {
+    return {
+      id: block.id,
+      type: block.type,
+      text: typeof block.text === "string" ? block.text : "",
+    };
+  }
+
+  if (block.type === "checklist") {
+    return {
+      id: block.id,
+      type: block.type,
+      title: typeof block.title === "string" ? block.title : "",
+      items: normalizeChecklistItems(block.items),
+    };
+  }
+
+  if (block.type === "quiz") {
+    return {
+      id: block.id,
+      type: block.type,
+      title: typeof block.title === "string" ? block.title : "",
+      questions: normalizeQuizQuestions(block.questions),
+    };
+  }
+
+  return {
+    id: block.id,
+    type: block.type,
+    url: typeof block.url === "string" ? block.url : "",
+    caption: typeof block.caption === "string" ? block.caption : "",
+  };
+}
+
 function parseBlocksFromJson(content: string | null | undefined): DayBlock[] {
   if (!content) return [];
 
@@ -90,12 +185,21 @@ function parseBlocksFromJson(content: string | null | undefined): DayBlock[] {
   if (!Array.isArray(blocksCandidate)) return [];
 
   const blocks: DayBlock[] = [];
+
   for (const rawBlock of blocksCandidate) {
     if (!rawBlock || typeof rawBlock !== "object") continue;
 
     const record = rawBlock as Record<string, unknown>;
     const type = record.type;
-    if (type !== "text" && type !== "video" && type !== "audio" && type !== "image") {
+    if (
+      type !== "text" &&
+      type !== "video" &&
+      type !== "audio" &&
+      type !== "image" &&
+      type !== "file" &&
+      type !== "checklist" &&
+      type !== "quiz"
+    ) {
       continue;
     }
 
@@ -111,6 +215,26 @@ function parseBlocksFromJson(content: string | null | undefined): DayBlock[] {
       continue;
     }
 
+    if (type === "checklist") {
+      blocks.push({
+        id,
+        type,
+        title: typeof record.title === "string" ? record.title : "",
+        items: normalizeChecklistItems(record.items),
+      });
+      continue;
+    }
+
+    if (type === "quiz") {
+      blocks.push({
+        id,
+        type,
+        title: typeof record.title === "string" ? record.title : "",
+        questions: normalizeQuizQuestions(record.questions),
+      });
+      continue;
+    }
+
     blocks.push({
       id,
       type,
@@ -120,6 +244,66 @@ function parseBlocksFromJson(content: string | null | undefined): DayBlock[] {
   }
 
   return blocks;
+}
+
+function normalizeChecklistItems(raw: unknown): DayChecklistItem[] {
+  if (!Array.isArray(raw)) return [];
+
+  const items: DayChecklistItem[] = [];
+  for (const entry of raw) {
+    if (typeof entry === "string") {
+      items.push(createChecklistItem(entry));
+      continue;
+    }
+
+    if (!entry || typeof entry !== "object") continue;
+
+    const record = entry as Record<string, unknown>;
+    const text = typeof record.text === "string" ? record.text : "";
+    const id =
+      typeof record.id === "string" && record.id
+        ? record.id
+        : createChecklistItem().id;
+
+    items.push({ id, text });
+  }
+
+  return items;
+}
+
+function normalizeQuizQuestions(raw: unknown): DayQuizQuestion[] {
+  if (!Array.isArray(raw)) return [];
+
+  const questions: DayQuizQuestion[] = [];
+
+  for (const entry of raw) {
+    if (!entry || typeof entry !== "object") continue;
+
+    const record = entry as Record<string, unknown>;
+    const prompt = typeof record.prompt === "string" ? record.prompt : "";
+    const options = Array.isArray(record.options)
+      ? record.options.filter((item): item is string => typeof item === "string")
+      : [];
+
+    const correctIndex =
+      typeof record.correctIndex === "number" && Number.isFinite(record.correctIndex)
+        ? record.correctIndex
+        : null;
+
+    const id =
+      typeof record.id === "string" && record.id ? record.id : createQuizQuestion().id;
+
+    questions.push({
+      id,
+      prompt,
+      options,
+      correctIndex,
+      explanation:
+        typeof record.explanation === "string" ? record.explanation : "",
+    });
+  }
+
+  return questions;
 }
 
 function getBlocksCandidate(parsed: unknown): unknown {

@@ -3,9 +3,13 @@
 import { createClient } from "@/utils/supabase/client";
 import {
   createBlock,
+  createChecklistItem,
+  createQuizQuestion,
   parseDayBlocks,
   serializeDayBlocks,
   type DayBlock,
+  type DayChecklistItem,
+  type DayQuizQuestion,
   type DayBlockType,
 } from "@/utils/dayBlocks";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -475,15 +479,65 @@ export default function AdminPanel({
             text: block.text?.trim() ?? "",
           };
         }
+
+        if (block.type === "checklist") {
+          const items = (block.items ?? [])
+            .map((item) => ({
+              id: item.id,
+              text: item.text.trim(),
+            }))
+            .filter((item) => Boolean(item.text));
+
+          return {
+            ...block,
+            title: block.title?.trim() ?? "",
+            items,
+          };
+        }
+
+        if (block.type === "quiz") {
+          const questions = (block.questions ?? [])
+            .map((question) => {
+              const options = (question.options ?? [])
+                .map((option) => option.trim())
+                .filter(Boolean);
+
+              const hasValidCorrect =
+                typeof question.correctIndex === "number" &&
+                question.correctIndex >= 0 &&
+                question.correctIndex < options.length;
+
+              return {
+                id: question.id,
+                prompt: question.prompt.trim(),
+                options,
+                correctIndex: hasValidCorrect ? question.correctIndex : null,
+                explanation: question.explanation?.trim() ?? "",
+              };
+            })
+            .filter(
+              (question) => Boolean(question.prompt) && question.options.length >= 2,
+            );
+
+          return {
+            ...block,
+            title: block.title?.trim() ?? "",
+            questions,
+          };
+        }
+
         return {
           ...block,
           url: block.url?.trim() ?? "",
           caption: block.caption?.trim() ?? "",
         };
       })
-      .filter((block) =>
-        block.type === "text" ? Boolean(block.text) : Boolean(block.url),
-      );
+      .filter((block) => {
+        if (block.type === "text") return Boolean(block.text);
+        if (block.type === "checklist") return (block.items?.length ?? 0) > 0;
+        if (block.type === "quiz") return (block.questions?.length ?? 0) > 0;
+        return Boolean(block.url);
+      });
 
     if (normalizedBlocks.length === 0) {
       setDayMsg("Agrega al menos un bloque con contenido.");
@@ -548,7 +602,9 @@ export default function AdminPanel({
 
   const uploadFileForBlock = async (block: DayBlock, file: File) => {
     if (!selectedLab) return;
-    if (block.type === "text") return;
+    if (block.type === "text" || block.type === "checklist" || block.type === "quiz") {
+      return;
+    }
 
     setUploadingBlockId(block.id);
     setDayMsg(`Subiendo ${file.name}...`);
@@ -582,6 +638,161 @@ export default function AdminPanel({
   const updateBlock = (id: string, patch: Partial<DayBlock>) => {
     setBlocks((prev) =>
       prev.map((block) => (block.id === id ? { ...block, ...patch } : block)),
+    );
+  };
+
+  const updateChecklistItem = (
+    blockId: string,
+    itemId: string,
+    patch: Partial<DayChecklistItem>,
+  ) => {
+    setBlocks((prev) =>
+      prev.map((block) => {
+        if (block.id !== blockId || block.type !== "checklist") return block;
+        return {
+          ...block,
+          items: (block.items ?? []).map((item) =>
+            item.id === itemId ? { ...item, ...patch } : item,
+          ),
+        };
+      }),
+    );
+  };
+
+  const addChecklistItem = (blockId: string) => {
+    setBlocks((prev) =>
+      prev.map((block) => {
+        if (block.id !== blockId || block.type !== "checklist") return block;
+        return {
+          ...block,
+          items: [...(block.items ?? []), createChecklistItem()],
+        };
+      }),
+    );
+  };
+
+  const removeChecklistItem = (blockId: string, itemId: string) => {
+    setBlocks((prev) =>
+      prev.map((block) => {
+        if (block.id !== blockId || block.type !== "checklist") return block;
+        const nextItems = (block.items ?? []).filter((item) => item.id !== itemId);
+        if (nextItems.length === 0) return { ...block, items: [createChecklistItem()] };
+        return { ...block, items: nextItems };
+      }),
+    );
+  };
+
+  const updateQuizQuestion = (
+    blockId: string,
+    questionId: string,
+    patch: Partial<DayQuizQuestion>,
+  ) => {
+    setBlocks((prev) =>
+      prev.map((block) => {
+        if (block.id !== blockId || block.type !== "quiz") return block;
+        return {
+          ...block,
+          questions: (block.questions ?? []).map((question) =>
+            question.id === questionId ? { ...question, ...patch } : question,
+          ),
+        };
+      }),
+    );
+  };
+
+  const addQuizQuestion = (blockId: string) => {
+    setBlocks((prev) =>
+      prev.map((block) => {
+        if (block.id !== blockId || block.type !== "quiz") return block;
+        return {
+          ...block,
+          questions: [...(block.questions ?? []), createQuizQuestion()],
+        };
+      }),
+    );
+  };
+
+  const removeQuizQuestion = (blockId: string, questionId: string) => {
+    setBlocks((prev) =>
+      prev.map((block) => {
+        if (block.id !== blockId || block.type !== "quiz") return block;
+        const nextQuestions = (block.questions ?? []).filter(
+          (question) => question.id !== questionId,
+        );
+        if (nextQuestions.length === 0) return { ...block, questions: [createQuizQuestion()] };
+        return { ...block, questions: nextQuestions };
+      }),
+    );
+  };
+
+  const addQuizOption = (blockId: string, questionId: string) => {
+    setBlocks((prev) =>
+      prev.map((block) => {
+        if (block.id !== blockId || block.type !== "quiz") return block;
+        return {
+          ...block,
+          questions: (block.questions ?? []).map((question) => {
+            if (question.id !== questionId) return question;
+            if (question.options.length >= 6) return question;
+            return { ...question, options: [...question.options, ""] };
+          }),
+        };
+      }),
+    );
+  };
+
+  const updateQuizOption = (
+    blockId: string,
+    questionId: string,
+    optionIndex: number,
+    value: string,
+  ) => {
+    setBlocks((prev) =>
+      prev.map((block) => {
+        if (block.id !== blockId || block.type !== "quiz") return block;
+        return {
+          ...block,
+          questions: (block.questions ?? []).map((question) => {
+            if (question.id !== questionId) return question;
+            const nextOptions = [...question.options];
+            nextOptions[optionIndex] = value;
+            return { ...question, options: nextOptions };
+          }),
+        };
+      }),
+    );
+  };
+
+  const removeQuizOption = (
+    blockId: string,
+    questionId: string,
+    optionIndex: number,
+  ) => {
+    setBlocks((prev) =>
+      prev.map((block) => {
+        if (block.id !== blockId || block.type !== "quiz") return block;
+        return {
+          ...block,
+          questions: (block.questions ?? []).map((question) => {
+            if (question.id !== questionId) return question;
+            if (question.options.length <= 2) return question;
+            const nextOptions = question.options.filter((_, idx) => idx !== optionIndex);
+            let nextCorrect = question.correctIndex;
+            if (typeof nextCorrect === "number") {
+              if (nextCorrect === optionIndex) {
+                nextCorrect = null;
+              } else if (nextCorrect > optionIndex) {
+                nextCorrect -= 1;
+              }
+            }
+            return {
+              ...question,
+              options: nextOptions,
+              correctIndex: nextCorrect,
+            };
+          }),
+        };
+      }),
     );
   };
 
@@ -1084,6 +1295,27 @@ export default function AdminPanel({
                         >
                           + Imagen
                         </button>
+                        <button
+                          type="button"
+                          onClick={() => addBlock("file")}
+                          className="px-3 py-1 text-xs rounded bg-gray-700 hover:bg-gray-600"
+                        >
+                          + Documento
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => addBlock("checklist")}
+                          className="px-3 py-1 text-xs rounded bg-gray-700 hover:bg-gray-600"
+                        >
+                          + Checklist
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => addBlock("quiz")}
+                          className="px-3 py-1 text-xs rounded bg-gray-700 hover:bg-gray-600"
+                        >
+                          + Quiz
+                        </button>
                       </div>
                     </div>
 
@@ -1127,7 +1359,7 @@ export default function AdminPanel({
                           </div>
                         </div>
 
-                        {block.type === "text" ? (
+                        {block.type === "text" && (
                           <textarea
                             value={block.text ?? ""}
                             onChange={(e) =>
@@ -1136,18 +1368,17 @@ export default function AdminPanel({
                             placeholder="Escribe la lectura/instruccion..."
                             className="w-full p-2 h-28 rounded bg-gray-950 border border-gray-700"
                           />
-                        ) : (
+                        )}
+
+                        {(block.type === "video" ||
+                          block.type === "audio" ||
+                          block.type === "image" ||
+                          block.type === "file") && (
                           <div className="space-y-2">
                             <div className="flex flex-wrap items-center gap-2">
                               <input
                                 type="file"
-                                accept={
-                                  block.type === "video"
-                                    ? "video/*"
-                                    : block.type === "audio"
-                                      ? "audio/*"
-                                      : "image/*"
-                                }
+                                accept={getFileAcceptForBlock(block.type)}
                                 onChange={(e) => {
                                   const file = e.target.files?.[0];
                                   if (!file) return;
@@ -1177,9 +1408,197 @@ export default function AdminPanel({
                               onChange={(e) =>
                                 updateBlock(block.id, { caption: e.target.value })
                               }
-                              placeholder="Titulo opcional"
+                              placeholder={
+                                block.type === "file"
+                                  ? "Nombre del documento (ej. Guía de trabajo)"
+                                  : "Titulo opcional"
+                              }
                               className="w-full p-2 rounded bg-gray-950 border border-gray-700"
                             />
+                          </div>
+                        )}
+
+                        {block.type === "checklist" && (
+                          <div className="space-y-3">
+                            <input
+                              type="text"
+                              value={block.title ?? ""}
+                              onChange={(e) =>
+                                updateBlock(block.id, { title: e.target.value })
+                              }
+                              placeholder="Titulo del checklist (opcional)"
+                              className="w-full p-2 rounded bg-gray-950 border border-gray-700"
+                            />
+                            <div className="space-y-2">
+                              {(block.items ?? []).map((item, itemIndex) => (
+                                <div key={item.id} className="flex gap-2">
+                                  <input
+                                    type="text"
+                                    value={item.text}
+                                    onChange={(e) =>
+                                      updateChecklistItem(block.id, item.id, {
+                                        text: e.target.value,
+                                      })
+                                    }
+                                    placeholder={`Punto ${itemIndex + 1}`}
+                                    className="flex-1 p-2 rounded bg-gray-950 border border-gray-700"
+                                  />
+                                  <button
+                                    type="button"
+                                    className="px-3 py-1 text-xs rounded bg-red-900/60 hover:bg-red-800"
+                                    onClick={() => removeChecklistItem(block.id, item.id)}
+                                  >
+                                    Quitar
+                                  </button>
+                                </div>
+                              ))}
+                              <button
+                                type="button"
+                                className="px-3 py-1 text-xs rounded bg-gray-700 hover:bg-gray-600"
+                                onClick={() => addChecklistItem(block.id)}
+                              >
+                                + Agregar punto
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        {block.type === "quiz" && (
+                          <div className="space-y-3">
+                            <input
+                              type="text"
+                              value={block.title ?? ""}
+                              onChange={(e) =>
+                                updateBlock(block.id, { title: e.target.value })
+                              }
+                              placeholder="Titulo del quiz (opcional)"
+                              className="w-full p-2 rounded bg-gray-950 border border-gray-700"
+                            />
+
+                            <div className="space-y-3">
+                              {(block.questions ?? []).map((question, questionIndex) => (
+                                <div
+                                  key={question.id}
+                                  className="rounded border border-gray-700 p-3 bg-gray-950/50 space-y-2"
+                                >
+                                  <div className="flex items-center justify-between gap-2">
+                                    <p className="text-xs text-gray-400">
+                                      Pregunta {questionIndex + 1}
+                                    </p>
+                                    <button
+                                      type="button"
+                                      className="px-2 py-1 text-xs rounded bg-red-900/60 hover:bg-red-800"
+                                      onClick={() =>
+                                        removeQuizQuestion(block.id, question.id)
+                                      }
+                                    >
+                                      Eliminar pregunta
+                                    </button>
+                                  </div>
+
+                                  <input
+                                    type="text"
+                                    value={question.prompt}
+                                    onChange={(e) =>
+                                      updateQuizQuestion(block.id, question.id, {
+                                        prompt: e.target.value,
+                                      })
+                                    }
+                                    placeholder="Enunciado de la pregunta"
+                                    className="w-full p-2 rounded bg-black border border-gray-700"
+                                  />
+
+                                  {(question.options ?? []).map((option, optionIndex) => (
+                                    <div key={`${question.id}_${optionIndex}`} className="flex gap-2">
+                                      <input
+                                        type="text"
+                                        value={option}
+                                        onChange={(e) =>
+                                          updateQuizOption(
+                                            block.id,
+                                            question.id,
+                                            optionIndex,
+                                            e.target.value,
+                                          )
+                                        }
+                                        placeholder={`Opción ${optionIndex + 1}`}
+                                        className="flex-1 p-2 rounded bg-black border border-gray-700"
+                                      />
+                                      <button
+                                        type="button"
+                                        className="px-2 py-1 text-xs rounded bg-red-900/60 hover:bg-red-800"
+                                        onClick={() =>
+                                          removeQuizOption(
+                                            block.id,
+                                            question.id,
+                                            optionIndex,
+                                          )
+                                        }
+                                      >
+                                        -
+                                      </button>
+                                    </div>
+                                  ))}
+
+                                  <div className="flex flex-wrap gap-2">
+                                    <button
+                                      type="button"
+                                      className="px-3 py-1 text-xs rounded bg-gray-700 hover:bg-gray-600"
+                                      onClick={() => addQuizOption(block.id, question.id)}
+                                    >
+                                      + Opción
+                                    </button>
+                                    <select
+                                      value={
+                                        typeof question.correctIndex === "number"
+                                          ? String(question.correctIndex)
+                                          : ""
+                                      }
+                                      onChange={(e) => {
+                                        const value = e.target.value.trim();
+                                        updateQuizQuestion(block.id, question.id, {
+                                          correctIndex:
+                                            value === ""
+                                              ? null
+                                              : Number.parseInt(value, 10),
+                                        });
+                                      }}
+                                      className="p-2 rounded bg-black border border-gray-700 text-sm"
+                                    >
+                                      <option value="">Respuesta correcta</option>
+                                      {(question.options ?? []).map((_, optionIndex) => (
+                                        <option
+                                          key={`${question.id}_correct_${optionIndex}`}
+                                          value={optionIndex}
+                                        >
+                                          Opción {optionIndex + 1}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
+
+                                  <input
+                                    type="text"
+                                    value={question.explanation ?? ""}
+                                    onChange={(e) =>
+                                      updateQuizQuestion(block.id, question.id, {
+                                        explanation: e.target.value,
+                                      })
+                                    }
+                                    placeholder="Explicación opcional al revisar resultados"
+                                    className="w-full p-2 rounded bg-black border border-gray-700"
+                                  />
+                                </div>
+                              ))}
+                            </div>
+
+                            <button
+                              type="button"
+                              className="px-3 py-1 text-xs rounded bg-gray-700 hover:bg-gray-600"
+                              onClick={() => addQuizQuestion(block.id)}
+                            >
+                              + Agregar pregunta
+                            </button>
                           </div>
                         )}
                       </div>
@@ -1692,4 +2111,12 @@ function formatMoney(amountCents: number, currency: "USD" | "MXN" | string) {
     style: "currency",
     currency: currency === "USD" ? "USD" : "MXN",
   }).format(safeAmount / 100);
+}
+
+function getFileAcceptForBlock(type: DayBlockType): string {
+  if (type === "video") return "video/*";
+  if (type === "audio") return "audio/*";
+  if (type === "image") return "image/*";
+  if (type === "file") return ".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,.zip";
+  return "*/*";
 }
