@@ -148,7 +148,7 @@ export default function LoginPage() {
       <div className="relative w-full max-w-lg rounded-2xl border border-[var(--ast-sky)]/35 bg-[linear-gradient(180deg,rgba(10,86,198,0.2),rgba(1,25,99,0.38))] backdrop-blur-sm p-7 space-y-5 shadow-2xl transition-all duration-300">
         <div className="flex justify-center">
           <Image
-            src="/logo-astrolab-cobalt.png"
+            src="/logo-astrolab-light.png"
             alt="Astrolab"
             width={210}
             height={39}

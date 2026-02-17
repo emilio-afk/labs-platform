@@ -74,6 +74,8 @@ type UserActivityItem = {
   created_at?: string | null;
 };
 
+type AdminTab = "hero" | "labs" | "days" | "comments" | "users";
+
 export default function AdminPanel({
   initialLabs,
   initialHeroTitle,
@@ -119,6 +121,7 @@ export default function AdminPanel({
   );
   const [activityItems, setActivityItems] = useState<UserActivityItem[]>([]);
   const [userMgmtRefreshTick, setUserMgmtRefreshTick] = useState(0);
+  const [activeTab, setActiveTab] = useState<AdminTab>("hero");
 
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
@@ -603,27 +606,30 @@ export default function AdminPanel({
         </div>
 
         <nav className="flex flex-wrap gap-2 text-xs">
-          <a href="#hero" className="px-3 py-1 rounded bg-gray-800 hover:bg-gray-700">
-            Hero
-          </a>
-          <a href="#labs" className="px-3 py-1 rounded bg-gray-800 hover:bg-gray-700">
-            Labs
-          </a>
-          <a href="#days" className="px-3 py-1 rounded bg-gray-800 hover:bg-gray-700">
-            Días
-          </a>
-          <a
-            href="#comments"
-            className="px-3 py-1 rounded bg-gray-800 hover:bg-gray-700"
-          >
-            Comentarios
-          </a>
-          <a href="#users" className="px-3 py-1 rounded bg-gray-800 hover:bg-gray-700">
-            Usuarios
-          </a>
+          {[
+            { key: "hero", label: "Hero" },
+            { key: "labs", label: "Labs" },
+            { key: "days", label: "Días" },
+            { key: "comments", label: "Comentarios" },
+            { key: "users", label: "Usuarios" },
+          ].map((tab) => (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => setActiveTab(tab.key as AdminTab)}
+              className={`px-3 py-1 rounded transition ${
+                activeTab === tab.key
+                  ? "bg-cyan-600 text-white"
+                  : "bg-gray-800 hover:bg-gray-700 text-gray-200"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
         </nav>
 
-        <section id="hero" className="bg-gray-800 p-6 rounded-lg border border-gray-700">
+        {activeTab === "hero" && (
+          <section className="bg-gray-800 p-6 rounded-lg border border-gray-700">
           <h2 className="text-xl font-bold mb-4 text-blue-400">
             1. Hero de Inicio
           </h2>
@@ -651,9 +657,11 @@ export default function AdminPanel({
             </button>
             {heroMsg && <span className="ml-4 text-yellow-300">{heroMsg}</span>}
           </form>
-        </section>
+          </section>
+        )}
 
-        <section id="labs" className="bg-gray-800 p-6 rounded-lg border border-gray-700">
+        {activeTab === "labs" && (
+          <section className="bg-gray-800 p-6 rounded-lg border border-gray-700">
           <h2 className="text-xl font-bold mb-4 text-blue-400">
             2. Crear Nuevo Curso (Lab)
           </h2>
@@ -683,9 +691,11 @@ export default function AdminPanel({
             </button>
             {msg && <span className="ml-4 text-yellow-300">{msg}</span>}
           </form>
-        </section>
+          </section>
+        )}
 
-        <section id="days" className="bg-gray-800 p-6 rounded-lg border border-gray-700">
+        {activeTab === "days" && (
+          <section className="bg-gray-800 p-6 rounded-lg border border-gray-700">
           <h2 className="text-xl font-bold mb-4 text-green-400">
             3. Disenar Dias con Bloques de Contenido
           </h2>
@@ -952,12 +962,11 @@ export default function AdminPanel({
               )}
             </div>
           </div>
-        </section>
+          </section>
+        )}
 
-        <section
-          id="comments"
-          className="bg-gray-800 p-6 rounded-lg border border-gray-700"
-        >
+        {activeTab === "comments" && (
+          <section className="bg-gray-800 p-6 rounded-lg border border-gray-700">
           <h2 className="text-xl font-bold mb-4 text-amber-400">
             4. Moderacion de Comentarios
           </h2>
@@ -1024,9 +1033,11 @@ export default function AdminPanel({
               )}
             </div>
           )}
-        </section>
+          </section>
+        )}
 
-        <section id="users" className="bg-gray-800 p-6 rounded-lg border border-gray-700">
+        {activeTab === "users" && (
+          <section className="bg-gray-800 p-6 rounded-lg border border-gray-700">
           <h2 className="text-xl font-bold mb-4 text-cyan-300">
             5. Gestión de Usuarios
           </h2>
@@ -1195,7 +1206,8 @@ export default function AdminPanel({
               </div>
             </div>
           </div>
-        </section>
+          </section>
+        )}
       </div>
     </div>
   );
