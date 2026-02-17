@@ -33,15 +33,27 @@ export default async function LabDetails({
   const {
     data: { user },
   } = await supabase.auth.getUser();
+
+  // 1. Conteo total para la barra superior
   const { count: completedCount } = await supabase
     .from("progress")
     .select("*", { count: "exact", head: true })
     .eq("user_id", user?.id)
     .eq("lab_id", id);
 
+  // 2. CHECK DE PERSISTENCIA: ¿Ya terminó ESTE día específico?
+  const { data: dayProgress } = await supabase
+    .from("progress")
+    .select("id")
+    .eq("user_id", user?.id)
+    .eq("lab_id", id)
+    .eq("day_number", currentDayNumber)
+    .maybeSingle();
+
+  const isDayCompleted = !!dayProgress; // True si ya existe registro
+
   const currentDay = days.find((d) => d.day_number === currentDayNumber);
 
-  // --- FUNCIÓN MEJORADA PARA EL VIDEO ---
   const getYouTubeID = (url: string) => {
     const regExp =
       /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
@@ -52,7 +64,6 @@ export default async function LabDetails({
   const videoId = currentDay?.video_url
     ? getYouTubeID(currentDay.video_url)
     : null;
-  // ---------------------------------------
 
   return (
     <div className="min-h-screen bg-black text-white">
@@ -101,6 +112,7 @@ export default async function LabDetails({
                 currentDay={currentDay}
                 labId={lab.id}
                 videoId={videoId || ""}
+                initialCompleted={isDayCompleted} // <--- Pasamos el estado de la base de datos
               />
             </>
           ) : (

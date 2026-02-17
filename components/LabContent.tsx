@@ -9,20 +9,27 @@ export default function LabContent({
   currentDay,
   labId,
   videoId,
+  initialCompleted,
 }: {
   currentDay: any;
   labId: string;
   videoId: string;
+  initialCompleted: boolean;
 }) {
-  const [videoDone, setVideoDone] = useState(false);
+  // Si ya estaba completado en BD, arrancamos en TRUE
+  const [videoDone, setVideoDone] = useState(initialCompleted);
 
   return (
     <div className="space-y-6">
       {videoId ? (
-        <VideoPlayer videoId={videoId} onFinished={() => setVideoDone(true)} />
+        <VideoPlayer
+          videoId={videoId}
+          onFinished={() => setVideoDone(true)}
+          allowSkip={initialCompleted} // <--- Si ya acabó, permitimos saltar (Skip)
+        />
       ) : (
         <div className="aspect-video w-full bg-gray-900 rounded-xl flex items-center justify-center border border-dashed border-gray-700 text-gray-500">
-          No hay video disponible para este módulo.
+          No hay video disponible.
         </div>
       )}
 
@@ -44,7 +51,7 @@ export default function LabContent({
 
         {!videoDone && videoId && (
           <p className="text-xs text-yellow-500/70 mb-4 animate-pulse">
-            ⚠️ Mira el video completo para desbloquear este paso.
+            🔒 Seguridad Activa: No puedes adelantar el video hasta terminarlo.
           </p>
         )}
 
