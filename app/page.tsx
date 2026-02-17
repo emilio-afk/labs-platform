@@ -3,6 +3,12 @@ import Link from "next/link";
 
 export default async function Home() {
   const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    redirect("/login"); // Si no hay usuario, mándalo directo al login
+  }
   const { data: labs } = await supabase.from("labs").select("*");
 
   return (
