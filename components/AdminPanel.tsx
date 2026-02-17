@@ -40,6 +40,40 @@ type AdminDay = {
   content: string | null;
 };
 
+type ManagedUser = {
+  id: string;
+  email: string | null;
+  created_at: string | null;
+  last_sign_in_at: string | null;
+  role: string;
+  active_labs: number;
+  progress_rows: number;
+  comments_rows: number;
+  last_comment_at: string | null;
+};
+
+type UserEntitlementLab = {
+  id: string;
+  title: string;
+  status: string;
+  hasAccess: boolean;
+};
+
+type UserActivitySummary = {
+  progress_count: number;
+  comments_count: number;
+  last_comment_at: string | null;
+};
+
+type UserActivityItem = {
+  type: "progress" | "comment";
+  lab_id: string;
+  lab_title: string;
+  day_number: number | null;
+  content?: string | null;
+  created_at?: string | null;
+};
+
 export default function AdminPanel({
   initialLabs,
   initialHeroTitle,
@@ -73,8 +107,25 @@ export default function AdminPanel({
   const [commentsMsg, setCommentsMsg] = useState("");
   const [commentsRefreshTick, setCommentsRefreshTick] = useState(0);
 
+  const [userSearch, setUserSearch] = useState("");
+  const [managedUsers, setManagedUsers] = useState<ManagedUser[]>([]);
+  const [selectedManagedUserId, setSelectedManagedUserId] = useState<string | null>(
+    null,
+  );
+  const [userMgmtMsg, setUserMgmtMsg] = useState("");
+  const [entitlementLabs, setEntitlementLabs] = useState<UserEntitlementLab[]>([]);
+  const [activitySummary, setActivitySummary] = useState<UserActivitySummary | null>(
+    null,
+  );
+  const [activityItems, setActivityItems] = useState<UserActivityItem[]>([]);
+  const [userMgmtRefreshTick, setUserMgmtRefreshTick] = useState(0);
+
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
+  const selectedManagedUser = useMemo(
+    () => managedUsers.find((managedUser) => managedUser.id === selectedManagedUserId) ?? null,
+    [managedUsers, selectedManagedUserId],
+  );
 
   const fetchLabs = useCallback(async () => {
     const { data, error } = await supabase
@@ -173,6 +224,103 @@ export default function AdminPanel({
       active = false;
     };
   }, [commentDayFilter, commentsRefreshTick, selectedLab, supabase]);
+
+  useEffect(() => {
+    let active = true;
+
+    const loadManagedUsers = async () => {
+      const params = new URLSearchParams();
+      if (userSearch.trim()) params.set("q", userSearch.trim());
+      const response = await fetch(`/api/admin/users?${params.toString()}`);
+      const payload = (await response.json()) as {
+        users?: ManagedUser[];
+        error?: string;
+      };
+
+      if (!active) return;
+      if (!response.ok) {
+        setUserMgmtMsg(payload.error ?? "No se pudieron cargar usuarios");
+        return;
+      }
+
+      const users = payload.users ?? [];
+      setManagedUsers(users);
+      setUserMgmtMsg("");
+      if (!selectedManagedUserId && users.length > 0) {
+        setSelectedManagedUserId(users[0].id);
+      }
+      if (
+        selectedManagedUserId &&
+        !users.some((managedUser) => managedUser.id === selectedManagedUserId)
+      ) {
+        setSelectedManagedUserId(users[0]?.id ?? null);
+      }
+    };
+
+    void loadManagedUsers();
+    return () => {
+      active = false;
+    };
+  }, [selectedManagedUserId, userMgmtRefreshTick, userSearch]);
+
+  useEffect(() => {
+    let active = true;
+
+    const loadSelectedUserData = async () => {
+      if (!selectedManagedUserId) {
+        if (active) {
+          setEntitlementLabs([]);
+          setActivitySummary(null);
+          setActivityItems([]);
+        }
+        return;
+      }
+
+      const [entitlementsRes, activityRes] = await Promise.all([
+        fetch(`/api/admin/user-entitlements?userId=${selectedManagedUserId}`),
+        fetch(`/api/admin/user-activity?userId=${selectedManagedUserId}`),
+      ]);
+
+      const entitlementsPayload = (await entitlementsRes.json()) as {
+        labs?: UserEntitlementLab[];
+        error?: string;
+      };
+      const activityPayload = (await activityRes.json()) as {
+        summary?: UserActivitySummary;
+        progress?: UserActivityItem[];
+        comments?: UserActivityItem[];
+        error?: string;
+      };
+
+      if (!active) return;
+
+      if (!entitlementsRes.ok) {
+        setUserMgmtMsg(
+          entitlementsPayload.error ?? "No se pudieron cargar accesos del usuario",
+        );
+      } else {
+        setEntitlementLabs(entitlementsPayload.labs ?? []);
+      }
+
+      if (!activityRes.ok) {
+        setUserMgmtMsg(
+          activityPayload.error ?? "No se pudo cargar actividad del usuario",
+        );
+      } else {
+        setActivitySummary(activityPayload.summary ?? null);
+        const merged = [
+          ...(activityPayload.comments ?? []),
+          ...(activityPayload.progress ?? []),
+        ].slice(0, 20);
+        setActivityItems(merged);
+      }
+    };
+
+    void loadSelectedUserData();
+    return () => {
+      active = false;
+    };
+  }, [selectedManagedUserId]);
 
   const createLab = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -392,6 +540,36 @@ export default function AdminPanel({
     setDaysRefreshTick((prev) => prev + 1);
   };
 
+  const toggleUserLabAccess = async (labId: string, grant: boolean) => {
+    if (!selectedManagedUserId) return;
+
+    setUserMgmtMsg("Guardando acceso...");
+    const response = await fetch("/api/admin/user-entitlements", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        userId: selectedManagedUserId,
+        labId,
+        grant,
+      }),
+    });
+    const payload = (await response.json()) as { error?: string };
+    if (!response.ok) {
+      setUserMgmtMsg(payload.error ?? "No se pudo actualizar acceso");
+      return;
+    }
+
+    setEntitlementLabs((prev) =>
+      prev.map((lab) =>
+        lab.id === labId
+          ? { ...lab, hasAccess: grant, status: grant ? "active" : "revoked" }
+          : lab,
+      ),
+    );
+    setUserMgmtMsg(grant ? "Acceso concedido" : "Acceso revocado");
+    setUserMgmtRefreshTick((prev) => prev + 1);
+  };
+
   const handleSelectLab = (labId: string) => {
     setSelectedLab(labId);
     setEditingDayId(null);
@@ -424,7 +602,28 @@ export default function AdminPanel({
           </div>
         </div>
 
-        <section className="bg-gray-800 p-6 rounded-lg border border-gray-700">
+        <nav className="flex flex-wrap gap-2 text-xs">
+          <a href="#hero" className="px-3 py-1 rounded bg-gray-800 hover:bg-gray-700">
+            Hero
+          </a>
+          <a href="#labs" className="px-3 py-1 rounded bg-gray-800 hover:bg-gray-700">
+            Labs
+          </a>
+          <a href="#days" className="px-3 py-1 rounded bg-gray-800 hover:bg-gray-700">
+            Días
+          </a>
+          <a
+            href="#comments"
+            className="px-3 py-1 rounded bg-gray-800 hover:bg-gray-700"
+          >
+            Comentarios
+          </a>
+          <a href="#users" className="px-3 py-1 rounded bg-gray-800 hover:bg-gray-700">
+            Usuarios
+          </a>
+        </nav>
+
+        <section id="hero" className="bg-gray-800 p-6 rounded-lg border border-gray-700">
           <h2 className="text-xl font-bold mb-4 text-blue-400">
             1. Hero de Inicio
           </h2>
@@ -454,7 +653,7 @@ export default function AdminPanel({
           </form>
         </section>
 
-        <section className="bg-gray-800 p-6 rounded-lg border border-gray-700">
+        <section id="labs" className="bg-gray-800 p-6 rounded-lg border border-gray-700">
           <h2 className="text-xl font-bold mb-4 text-blue-400">
             2. Crear Nuevo Curso (Lab)
           </h2>
@@ -486,7 +685,7 @@ export default function AdminPanel({
           </form>
         </section>
 
-        <section className="bg-gray-800 p-6 rounded-lg border border-gray-700">
+        <section id="days" className="bg-gray-800 p-6 rounded-lg border border-gray-700">
           <h2 className="text-xl font-bold mb-4 text-green-400">
             3. Disenar Dias con Bloques de Contenido
           </h2>
@@ -755,7 +954,10 @@ export default function AdminPanel({
           </div>
         </section>
 
-        <section className="bg-gray-800 p-6 rounded-lg border border-gray-700">
+        <section
+          id="comments"
+          className="bg-gray-800 p-6 rounded-lg border border-gray-700"
+        >
           <h2 className="text-xl font-bold mb-4 text-amber-400">
             4. Moderacion de Comentarios
           </h2>
@@ -822,6 +1024,177 @@ export default function AdminPanel({
               )}
             </div>
           )}
+        </section>
+
+        <section id="users" className="bg-gray-800 p-6 rounded-lg border border-gray-700">
+          <h2 className="text-xl font-bold mb-4 text-cyan-300">
+            5. Gestión de Usuarios
+          </h2>
+
+          <div className="space-y-4">
+            <div className="flex flex-wrap gap-3 items-end">
+              <div className="min-w-64">
+                <label className="text-xs text-gray-400">Buscar por correo</label>
+                <input
+                  type="text"
+                  value={userSearch}
+                  onChange={(e) => setUserSearch(e.target.value)}
+                  placeholder="usuario@correo.com"
+                  className="w-full p-2 rounded bg-black border border-gray-600"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => setUserMgmtRefreshTick((prev) => prev + 1)}
+                className="px-4 py-2 rounded bg-gray-700 hover:bg-gray-600 text-sm"
+              >
+                Refrescar usuarios
+              </button>
+              {userMgmtMsg && <p className="text-sm text-yellow-300">{userMgmtMsg}</p>}
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              <div className="border border-gray-700 rounded-lg p-3 max-h-96 overflow-auto space-y-2">
+                {managedUsers.map((managedUser) => (
+                  <button
+                    key={managedUser.id}
+                    type="button"
+                    onClick={() => setSelectedManagedUserId(managedUser.id)}
+                    className={`w-full text-left rounded p-2 border transition ${selectedManagedUserId === managedUser.id ? "bg-cyan-950/30 border-cyan-500" : "bg-black/30 border-gray-700 hover:border-gray-500"}`}
+                  >
+                    <p className="text-sm font-semibold text-gray-100 truncate">
+                      {managedUser.email ?? "Sin correo"}
+                    </p>
+                    <p className="text-xs text-gray-400">
+                      Rol: {managedUser.role} • Labs activos: {managedUser.active_labs}
+                    </p>
+                  </button>
+                ))}
+                {managedUsers.length === 0 && (
+                  <p className="text-sm text-gray-400">No hay usuarios para mostrar.</p>
+                )}
+              </div>
+
+              <div className="lg:col-span-2 border border-gray-700 rounded-lg p-4 space-y-4">
+                {!selectedManagedUserId ? (
+                  <p className="text-gray-400">Selecciona un usuario para gestionar.</p>
+                ) : (
+                  <>
+                    <div className="rounded border border-gray-700 p-3 bg-black/30">
+                      <h3 className="text-sm font-bold text-cyan-200 mb-2">
+                        Información del usuario
+                      </h3>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
+                        <p className="text-gray-300">
+                          <span className="text-gray-500">Correo:</span>{" "}
+                          {selectedManagedUser?.email ?? "Sin correo"}
+                        </p>
+                        <p className="text-gray-300">
+                          <span className="text-gray-500">Rol:</span>{" "}
+                          {selectedManagedUser?.role ?? "student"}
+                        </p>
+                        <p className="text-gray-300">
+                          <span className="text-gray-500">Creado:</span>{" "}
+                          {selectedManagedUser?.created_at
+                            ? new Date(selectedManagedUser.created_at).toLocaleString()
+                            : "N/D"}
+                        </p>
+                        <p className="text-gray-300">
+                          <span className="text-gray-500">Último login:</span>{" "}
+                          {selectedManagedUser?.last_sign_in_at
+                            ? new Date(selectedManagedUser.last_sign_in_at).toLocaleString()
+                            : "N/D"}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      <div className="rounded border border-gray-700 p-3 bg-black/30">
+                        <p className="text-xs text-gray-400">Labs activos</p>
+                        <p className="text-2xl font-black">
+                          {entitlementLabs.filter((lab) => lab.hasAccess).length}
+                        </p>
+                      </div>
+                      <div className="rounded border border-gray-700 p-3 bg-black/30">
+                        <p className="text-xs text-gray-400">Progresos registrados</p>
+                        <p className="text-2xl font-black">
+                          {activitySummary?.progress_count ?? 0}
+                        </p>
+                      </div>
+                      <div className="rounded border border-gray-700 p-3 bg-black/30">
+                        <p className="text-xs text-gray-400">Comentarios recientes</p>
+                        <p className="text-2xl font-black">
+                          {activitySummary?.comments_count ?? 0}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="border border-gray-700 rounded p-3">
+                      <h3 className="text-sm font-bold text-cyan-200 mb-2">
+                        Accesos a Labs
+                      </h3>
+                      <div className="space-y-2 max-h-52 overflow-auto pr-1">
+                        {entitlementLabs.map((lab) => (
+                          <div
+                            key={lab.id}
+                            className="flex items-center justify-between gap-3 rounded border border-gray-700 p-2 bg-black/30"
+                          >
+                            <div>
+                              <p className="text-sm text-gray-100">{lab.title}</p>
+                              <p className="text-xs text-gray-500">
+                                Estado: {lab.status}
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => void toggleUserLabAccess(lab.id, !lab.hasAccess)}
+                              className={`text-xs px-3 py-1 rounded ${lab.hasAccess ? "bg-red-900/60 hover:bg-red-800" : "bg-emerald-800 hover:bg-emerald-700"}`}
+                            >
+                              {lab.hasAccess ? "Revocar" : "Conceder"}
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="border border-gray-700 rounded p-3">
+                      <h3 className="text-sm font-bold text-cyan-200 mb-2">
+                        Actividad (comentarios/progreso)
+                      </h3>
+                      <div className="space-y-2 max-h-52 overflow-auto pr-1">
+                        {activityItems.map((item, index) => (
+                          <div
+                            key={`${item.type}-${item.lab_id}-${item.day_number ?? 0}-${index}`}
+                            className="rounded border border-gray-700 p-2 bg-black/30"
+                          >
+                            <p className="text-xs text-gray-400">
+                              {item.type === "comment" ? "Comentario" : "Progreso"} •{" "}
+                              {item.lab_title} • Día {item.day_number ?? "-"}
+                            </p>
+                            {item.content && (
+                              <p className="text-sm text-gray-200 line-clamp-2 mt-1">
+                                {item.content}
+                              </p>
+                            )}
+                            {item.created_at && (
+                              <p className="text-[11px] text-gray-500 mt-1">
+                                {new Date(item.created_at).toLocaleString()}
+                              </p>
+                            )}
+                          </div>
+                        ))}
+                        {activityItems.length === 0 && (
+                          <p className="text-sm text-gray-400">
+                            Sin actividad registrada.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
         </section>
       </div>
     </div>
