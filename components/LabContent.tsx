@@ -16,11 +16,13 @@ export default function LabContent({
   labId,
   videoId,
   initialCompleted,
+  onDayCompleted,
 }: {
   currentDay: DayContent;
   labId: string;
   videoId: string;
   initialCompleted: boolean;
+  onDayCompleted?: (dayNumber: number) => void;
 }) {
   // Si ya estaba completado en BD, arrancamos en TRUE
   const [videoDone, setVideoDone] = useState(initialCompleted);
@@ -55,6 +57,7 @@ export default function LabContent({
               labId={labId}
               dayNumber={currentDay.day_number}
               initialCompleted={initialCompleted}
+              onCompleted={onDayCompleted}
             />
           </div>
         </div>

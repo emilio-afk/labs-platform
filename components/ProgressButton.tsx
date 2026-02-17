@@ -1,21 +1,21 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 export default function ProgressButton({
   labId,
   dayNumber,
   initialCompleted,
+  onCompleted,
 }: {
   labId: string;
   dayNumber: number;
   initialCompleted: boolean;
+  onCompleted?: (dayNumber: number) => void;
 }) {
   const [completed, setCompleted] = useState(initialCompleted);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const router = useRouter();
 
   const markAsCompleted = async () => {
     if (completed || saving) return;
@@ -35,7 +35,7 @@ export default function ProgressButton({
       }
 
       setCompleted(true);
-      router.refresh();
+      onCompleted?.(dayNumber);
     } catch {
       setError("No se pudo conectar con el servidor");
     } finally {
