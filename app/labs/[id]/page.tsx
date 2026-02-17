@@ -15,7 +15,7 @@ type LabDay = {
   day_number: number;
   title: string;
   video_url: string | null;
-  content: string;
+  content: string | null;
 };
 
 export default async function LabDetails({

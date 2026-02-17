@@ -10,7 +10,7 @@ export type WorkspaceDay = {
   day_number: number;
   title: string;
   video_url: string | null;
-  content: string;
+  content: string | null;
 };
 
 type LabWorkspaceProps = {
@@ -19,14 +19,6 @@ type LabWorkspaceProps = {
   initialDayNumber: number;
   completedDayNumbers: number[];
 };
-
-function getYouTubeID(url: string | null): string | null {
-  if (!url) return null;
-  const regExp =
-    /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
-  const match = url.match(regExp);
-  return match && match[2].length === 11 ? match[2] : null;
-}
 
 export default function LabWorkspace({
   labId,
@@ -109,7 +101,6 @@ export default function LabWorkspace({
               key={currentDay.id}
               currentDay={currentDay}
               labId={labId}
-              videoId={getYouTubeID(currentDay.video_url) || ""}
               initialCompleted={completedDays.includes(currentDay.day_number)}
               onDayCompleted={handleDayCompleted}
             />

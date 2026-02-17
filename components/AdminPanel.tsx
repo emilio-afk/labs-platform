@@ -1,7 +1,13 @@
 "use client";
 
 import { createClient } from "@/utils/supabase/client";
-import { useCallback, useMemo, useState } from "react";
+import {
+  createBlock,
+  serializeDayBlocks,
+  type DayBlock,
+  type DayBlockType,
+} from "@/utils/dayBlocks";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 export type AdminLab = {
@@ -13,6 +19,14 @@ export type AdminLab = {
 
 type AdminPanelProps = {
   initialLabs: AdminLab[];
+};
+
+type AdminComment = {
+  id: string;
+  day_number: number;
+  user_email: string | null;
+  content: string;
+  created_at: string;
 };
 
 export default function AdminPanel({ initialLabs }: AdminPanelProps) {
@@ -27,9 +41,13 @@ export default function AdminPanel({ initialLabs }: AdminPanelProps) {
   );
   const [dayNumber, setDayNumber] = useState(1);
   const [dayTitle, setDayTitle] = useState("");
-  const [videoUrl, setVideoUrl] = useState("");
-  const [content, setContent] = useState("");
+  const [blocks, setBlocks] = useState<DayBlock[]>([createBlock("text")]);
   const [dayMsg, setDayMsg] = useState("");
+
+  const [commentDayFilter, setCommentDayFilter] = useState<string>("");
+  const [comments, setComments] = useState<AdminComment[]>([]);
+  const [commentsMsg, setCommentsMsg] = useState("");
+  const [commentsRefreshTick, setCommentsRefreshTick] = useState(0);
 
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
@@ -46,6 +64,48 @@ export default function AdminPanel({ initialLabs }: AdminPanelProps) {
       setSelectedLab((prev) => prev ?? nextLabs[0]?.id ?? null);
     }
   }, [supabase]);
+
+  useEffect(() => {
+    let active = true;
+
+    const loadComments = async () => {
+      if (!selectedLab) {
+        if (active) {
+          setComments([]);
+          setCommentsMsg("");
+        }
+        return;
+      }
+
+      let query = supabase
+        .from("comments")
+        .select("id, day_number, user_email, content, created_at")
+        .eq("lab_id", selectedLab)
+        .order("created_at", { ascending: false })
+        .limit(100);
+
+      const parsedDayFilter = Number.parseInt(commentDayFilter, 10);
+      if (Number.isInteger(parsedDayFilter) && parsedDayFilter > 0) {
+        query = query.eq("day_number", parsedDayFilter);
+      }
+
+      const { data, error } = await query;
+      if (!active) return;
+
+      if (error) {
+        setCommentsMsg("Error al cargar comentarios: " + error.message);
+        return;
+      }
+
+      setCommentsMsg("");
+      setComments((data as AdminComment[] | null) ?? []);
+    };
+
+    void loadComments();
+    return () => {
+      active = false;
+    };
+  }, [commentDayFilter, commentsRefreshTick, selectedLab, supabase]);
 
   const createLab = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -66,15 +126,41 @@ export default function AdminPanel({ initialLabs }: AdminPanelProps) {
   const createDay = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!selectedLab) return;
-    setDayMsg("Guardando Dia...");
+    setDayMsg("Guardando dia...");
 
+    const normalizedBlocks = blocks
+      .map((block) => {
+        if (block.type === "text") {
+          return {
+            ...block,
+            text: block.text?.trim() ?? "",
+          };
+        }
+        return {
+          ...block,
+          url: block.url?.trim() ?? "",
+          caption: block.caption?.trim() ?? "",
+        };
+      })
+      .filter((block) =>
+        block.type === "text" ? Boolean(block.text) : Boolean(block.url),
+      );
+
+    if (normalizedBlocks.length === 0) {
+      setDayMsg("Agrega al menos un bloque con contenido.");
+      return;
+    }
+
+    const firstVideoBlock = normalizedBlocks.find(
+      (block) => block.type === "video" && block.url,
+    );
     const { error } = await supabase.from("days").insert([
       {
         lab_id: selectedLab,
         day_number: dayNumber,
         title: dayTitle,
-        video_url: videoUrl,
-        content,
+        video_url: firstVideoBlock?.url ?? null,
+        content: serializeDayBlocks(normalizedBlocks),
       },
     ]);
 
@@ -83,11 +169,47 @@ export default function AdminPanel({ initialLabs }: AdminPanelProps) {
       return;
     }
 
-    setDayMsg("Dia agregado correctamente");
+    setDayMsg("Dia guardado correctamente");
     setDayTitle("");
-    setVideoUrl("");
-    setContent("");
+    setBlocks([createBlock("text")]);
     setDayNumber((prev) => prev + 1);
+  };
+
+  const addBlock = (type: DayBlockType) => {
+    setBlocks((prev) => [...prev, createBlock(type)]);
+  };
+
+  const updateBlock = (id: string, patch: Partial<DayBlock>) => {
+    setBlocks((prev) =>
+      prev.map((block) => (block.id === id ? { ...block, ...patch } : block)),
+    );
+  };
+
+  const removeBlock = (id: string) => {
+    setBlocks((prev) => {
+      if (prev.length === 1) return prev;
+      return prev.filter((block) => block.id !== id);
+    });
+  };
+
+  const moveBlock = (index: number, direction: -1 | 1) => {
+    setBlocks((prev) => {
+      const nextIndex = index + direction;
+      if (nextIndex < 0 || nextIndex >= prev.length) return prev;
+      const next = [...prev];
+      const [item] = next.splice(index, 1);
+      next.splice(nextIndex, 0, item);
+      return next;
+    });
+  };
+
+  const deleteComment = async (commentId: string) => {
+    const { error } = await supabase.from("comments").delete().eq("id", commentId);
+    if (error) {
+      setCommentsMsg("No se pudo borrar: " + error.message);
+      return;
+    }
+    setComments((prev) => prev.filter((comment) => comment.id !== commentId));
   };
 
   const handleLogout = async () => {
@@ -147,7 +269,7 @@ export default function AdminPanel({ initialLabs }: AdminPanelProps) {
 
         <section className="bg-gray-800 p-6 rounded-lg border border-gray-700">
           <h2 className="text-xl font-bold mb-4 text-green-400">
-            2. Agregar Dias y Contenido
+            2. Disenar Dias con Bloques de Contenido
           </h2>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
@@ -176,7 +298,7 @@ export default function AdminPanel({ initialLabs }: AdminPanelProps) {
               ) : (
                 <form onSubmit={createDay} className="space-y-4 animate-fadeIn">
                   <h3 className="font-bold text-lg text-white mb-4">
-                    Agregando contenido al curso seleccionado
+                    Constructor de Dia
                   </h3>
 
                   <div className="flex gap-4">
@@ -205,28 +327,116 @@ export default function AdminPanel({ initialLabs }: AdminPanelProps) {
                     </div>
                   </div>
 
-                  <div>
-                    <label className="text-xs text-gray-400">
-                      Video URL (Youtube/Vimeo)
-                    </label>
-                    <input
-                      type="text"
-                      value={videoUrl}
-                      onChange={(e) => setVideoUrl(e.target.value)}
-                      placeholder="https://youtube.com/..."
-                      className="w-full p-2 rounded bg-black border border-gray-600"
-                    />
-                  </div>
+                  <div className="border border-gray-700 rounded-lg p-4 space-y-4 bg-gray-900/60">
+                    <div className="flex flex-wrap gap-2 items-center justify-between">
+                      <p className="text-sm text-gray-300 font-semibold">
+                        Bloques del dia (mezcla libre de medios)
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => addBlock("text")}
+                          className="px-3 py-1 text-xs rounded bg-gray-700 hover:bg-gray-600"
+                        >
+                          + Texto
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => addBlock("video")}
+                          className="px-3 py-1 text-xs rounded bg-gray-700 hover:bg-gray-600"
+                        >
+                          + Video
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => addBlock("audio")}
+                          className="px-3 py-1 text-xs rounded bg-gray-700 hover:bg-gray-600"
+                        >
+                          + Audio
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => addBlock("image")}
+                          className="px-3 py-1 text-xs rounded bg-gray-700 hover:bg-gray-600"
+                        >
+                          + Imagen
+                        </button>
+                      </div>
+                    </div>
 
-                  <div>
-                    <label className="text-xs text-gray-400">Texto del Reto</label>
-                    <textarea
-                      value={content}
-                      onChange={(e) => setContent(e.target.value)}
-                      placeholder="Describe el reto de hoy..."
-                      className="w-full p-2 h-32 rounded bg-black border border-gray-600"
-                      required
-                    />
+                    {blocks.map((block, index) => (
+                      <div
+                        key={block.id}
+                        className="border border-gray-700 rounded-lg p-3 space-y-3 bg-black/40"
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="text-sm text-gray-300">
+                            Bloque {index + 1}:{" "}
+                            <span className="uppercase text-green-400">
+                              {block.type}
+                            </span>
+                          </div>
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              className="px-2 py-1 text-xs rounded bg-gray-700 hover:bg-gray-600 disabled:opacity-40"
+                              onClick={() => moveBlock(index, -1)}
+                              disabled={index === 0}
+                            >
+                              ↑
+                            </button>
+                            <button
+                              type="button"
+                              className="px-2 py-1 text-xs rounded bg-gray-700 hover:bg-gray-600 disabled:opacity-40"
+                              onClick={() => moveBlock(index, 1)}
+                              disabled={index === blocks.length - 1}
+                            >
+                              ↓
+                            </button>
+                            <button
+                              type="button"
+                              className="px-2 py-1 text-xs rounded bg-red-900/60 hover:bg-red-800 disabled:opacity-40"
+                              onClick={() => removeBlock(block.id)}
+                              disabled={blocks.length === 1}
+                            >
+                              Eliminar
+                            </button>
+                          </div>
+                        </div>
+
+                        {block.type === "text" ? (
+                          <textarea
+                            value={block.text ?? ""}
+                            onChange={(e) =>
+                              updateBlock(block.id, { text: e.target.value })
+                            }
+                            placeholder="Escribe la lectura/instruccion..."
+                            className="w-full p-2 h-28 rounded bg-gray-950 border border-gray-700"
+                          />
+                        ) : (
+                          <div className="space-y-2">
+                            <input
+                              type="text"
+                              value={block.url ?? ""}
+                              onChange={(e) =>
+                                updateBlock(block.id, { url: e.target.value })
+                              }
+                              placeholder="URL del recurso"
+                              className="w-full p-2 rounded bg-gray-950 border border-gray-700"
+                            />
+                            <input
+                              type="text"
+                              value={block.caption ?? ""}
+                              onChange={(e) =>
+                                updateBlock(block.id, { caption: e.target.value })
+                              }
+                              placeholder="Titulo opcional"
+                              className="w-full p-2 rounded bg-gray-950 border border-gray-700"
+                            />
+                          </div>
+                        )}
+                      </div>
+                    ))}
                   </div>
 
                   <button
@@ -242,6 +452,75 @@ export default function AdminPanel({ initialLabs }: AdminPanelProps) {
               )}
             </div>
           </div>
+        </section>
+
+        <section className="bg-gray-800 p-6 rounded-lg border border-gray-700">
+          <h2 className="text-xl font-bold mb-4 text-amber-400">
+            3. Moderacion de Comentarios
+          </h2>
+          {!selectedLab ? (
+            <p className="text-gray-400">
+              Selecciona un lab para moderar comentarios.
+            </p>
+          ) : (
+            <div className="space-y-4">
+              <div className="flex items-end gap-3">
+                <div>
+                  <label className="text-xs text-gray-400">Filtrar por dia</label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={commentDayFilter}
+                    onChange={(e) => setCommentDayFilter(e.target.value)}
+                    placeholder="Todos"
+                    className="w-32 p-2 rounded bg-black border border-gray-600"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setCommentsRefreshTick((prev) => prev + 1)}
+                  className="px-4 py-2 rounded bg-gray-700 hover:bg-gray-600 text-sm"
+                >
+                  Refrescar
+                </button>
+              </div>
+
+              {commentsMsg && <p className="text-yellow-300">{commentsMsg}</p>}
+              {comments.length === 0 ? (
+                <p className="text-gray-400">No hay comentarios en este filtro.</p>
+              ) : (
+                <div className="space-y-3 max-h-96 overflow-auto pr-1">
+                  {comments.map((comment) => (
+                    <div
+                      key={comment.id}
+                      className="border border-gray-700 rounded p-3 bg-black/40"
+                    >
+                      <div className="flex justify-between items-start gap-3">
+                        <div>
+                          <p className="text-xs text-gray-400">
+                            Dia {comment.day_number} • {comment.user_email ?? "Sin correo"}
+                          </p>
+                          <p className="text-xs text-gray-500">
+                            {new Date(comment.created_at).toLocaleString()}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => void deleteComment(comment.id)}
+                          className="px-3 py-1 rounded bg-red-900/60 hover:bg-red-800 text-xs"
+                        >
+                          Borrar
+                        </button>
+                      </div>
+                      <p className="text-sm text-gray-200 mt-2 whitespace-pre-wrap">
+                        {comment.content}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </section>
       </div>
     </div>

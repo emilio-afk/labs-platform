@@ -1,5 +1,6 @@
 "use client";
 
+import { extractYouTubeVideoId, parseDayBlocks } from "@/utils/dayBlocks";
 import { useState } from "react";
 import VideoPlayer from "./VideoPlayer";
 import ProgressButton from "./ProgressButton";
@@ -8,36 +9,38 @@ import Forum from "./Forum";
 type DayContent = {
   id: string;
   day_number: number;
-  content: string;
+  content: string | null;
+  video_url: string | null;
 };
 
 export default function LabContent({
   currentDay,
   labId,
-  videoId,
   initialCompleted,
   onDayCompleted,
 }: {
   currentDay: DayContent;
   labId: string;
-  videoId: string;
   initialCompleted: boolean;
   onDayCompleted?: (dayNumber: number) => void;
 }) {
-  // Si ya estaba completado en BD, arrancamos en TRUE
-  const [videoDone, setVideoDone] = useState(initialCompleted);
+  const blocks = parseDayBlocks(currentDay.content, currentDay.video_url);
+  const primaryYouTubeVideo = findPrimaryYouTubeVideo(blocks);
+
+  const requiresWatch = Boolean(primaryYouTubeVideo && !initialCompleted);
+  const [videoDone, setVideoDone] = useState(initialCompleted || !requiresWatch);
 
   return (
     <div className="space-y-6">
-      {videoId ? (
+      {primaryYouTubeVideo?.videoId ? (
         <VideoPlayer
-          videoId={videoId}
+          videoId={primaryYouTubeVideo.videoId}
           onFinished={() => setVideoDone(true)}
-          allowSkip={initialCompleted} // <--- Si ya acabó, permitimos saltar (Skip)
+          allowSkip={initialCompleted}
         />
       ) : (
         <div className="aspect-video w-full bg-gray-900 rounded-xl flex items-center justify-center border border-dashed border-gray-700 text-gray-500">
-          No hay video disponible.
+          No hay video principal de YouTube para este día.
         </div>
       )}
 
@@ -62,18 +65,113 @@ export default function LabContent({
           </div>
         </div>
 
-        {!videoDone && videoId && (
+        {!videoDone && requiresWatch && (
           <p className="text-xs text-yellow-500/70 mb-4 animate-pulse">
             🔒 Seguridad Activa: No puedes adelantar el video hasta terminarlo.
           </p>
         )}
 
-        <div className="text-gray-300 whitespace-pre-wrap leading-relaxed">
-          {currentDay.content}
+        <div className="space-y-4">
+          {blocks.length === 0 && (
+            <p className="text-gray-500">
+              Este día no tiene bloques de contenido todavía.
+            </p>
+          )}
+          {blocks.map((block, index) => {
+            if (
+              primaryYouTubeVideo &&
+              block.type === "video" &&
+              index === primaryYouTubeVideo.index
+            ) {
+              if (block.caption) {
+                return (
+                  <p key={block.id} className="text-sm text-gray-400 italic">
+                    {block.caption}
+                  </p>
+                );
+              }
+              return null;
+            }
+
+            if (block.type === "text") {
+              return (
+                <div
+                  key={block.id}
+                  className="text-gray-300 whitespace-pre-wrap leading-relaxed"
+                >
+                  {block.text}
+                </div>
+              );
+            }
+
+            if (block.type === "image") {
+              return (
+                <div key={block.id} className="space-y-2">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={block.url}
+                    alt={block.caption || "Imagen del día"}
+                    className="w-full rounded-lg border border-gray-700"
+                    loading="lazy"
+                  />
+                  {block.caption && (
+                    <p className="text-sm text-gray-400">{block.caption}</p>
+                  )}
+                </div>
+              );
+            }
+
+            if (block.type === "audio") {
+              return (
+                <div key={block.id} className="space-y-2">
+                  <audio controls className="w-full" src={block.url} />
+                  {block.caption && (
+                    <p className="text-sm text-gray-400">{block.caption}</p>
+                  )}
+                </div>
+              );
+            }
+
+            const embeddedVideoId = extractYouTubeVideoId(block.url);
+            return (
+              <div key={block.id} className="space-y-2">
+                {embeddedVideoId ? (
+                  <iframe
+                    title={block.caption || `Video ${index + 1}`}
+                    className="w-full aspect-video rounded-lg border border-gray-700"
+                    src={`https://www.youtube.com/embed/${embeddedVideoId}`}
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allowFullScreen
+                  />
+                ) : (
+                  <video
+                    controls
+                    className="w-full rounded-lg border border-gray-700"
+                    src={block.url}
+                  />
+                )}
+                {block.caption && (
+                  <p className="text-sm text-gray-400">{block.caption}</p>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
 
       <Forum labId={labId} dayNumber={currentDay.day_number} />
     </div>
   );
+}
+
+function findPrimaryYouTubeVideo(
+  blocks: ReturnType<typeof parseDayBlocks>,
+): { index: number; videoId: string } | null {
+  for (let i = 0; i < blocks.length; i += 1) {
+    const block = blocks[i];
+    if (block.type !== "video") continue;
+    const videoId = extractYouTubeVideoId(block.url);
+    if (videoId) return { index: i, videoId };
+  }
+  return null;
 }
