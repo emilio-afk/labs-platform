@@ -159,10 +159,28 @@ export async function POST(request: Request) {
 
   const finalAmountCents = Math.max(selectedPrice.amount_cents - discountCents, 0);
   if (finalAmountCents <= 0) {
-    return NextResponse.json(
-      { error: "El cupón reduce el monto a cero. Ajusta el descuento." },
-      { status: 400 },
-    );
+    const appUrl = resolveAppUrl(request);
+    const freeGrantResult = await grantFreeAccess({
+      admin,
+      userId: user.id,
+      labId,
+      currency: selectedPrice.currency,
+      originalAmountCents: selectedPrice.amount_cents,
+      discountCents,
+      couponCode: (appliedCoupon?.code ?? couponCode) || null,
+    });
+
+    if (freeGrantResult.error) {
+      return NextResponse.json({ error: freeGrantResult.error }, { status: 500 });
+    }
+
+    return NextResponse.json({
+      url: `${appUrl}/labs/${labId}?payment=success&source=coupon`,
+      amountCents: 0,
+      discountCents,
+      currency: selectedPrice.currency,
+      freeAccess: true,
+    });
   }
 
   const appUrl = resolveAppUrl(request);
@@ -191,6 +209,62 @@ export async function POST(request: Request) {
     discountCents,
     currency: selectedPrice.currency,
   });
+}
+
+async function grantFreeAccess(params: {
+  admin: NonNullable<ReturnType<typeof createAdminClient>>;
+  userId: string;
+  labId: string;
+  currency: "USD" | "MXN";
+  originalAmountCents: number;
+  discountCents: number;
+  couponCode: string | null;
+}): Promise<{ error?: string }> {
+  const nowIso = new Date().toISOString();
+  const syntheticSessionId = `coupon_free_${params.userId}_${params.labId}_${Date.now()}`;
+
+  const [orderRes, entitlementRes] = await Promise.all([
+    params.admin.from("payment_orders").insert([
+      {
+        stripe_session_id: syntheticSessionId,
+        stripe_payment_intent_id: null,
+        user_id: params.userId,
+        lab_id: params.labId,
+        amount_cents: 0,
+        currency: params.currency,
+        coupon_code: params.couponCode,
+        status: "paid",
+        source: "coupon",
+        metadata: {
+          original_amount_cents: params.originalAmountCents,
+          discount_cents: params.discountCents,
+          grant_type: "free_coupon",
+        },
+        updated_at: nowIso,
+      },
+    ]),
+    params.admin.from("lab_entitlements").upsert(
+      [
+        {
+          user_id: params.userId,
+          lab_id: params.labId,
+          status: "active",
+          source: "coupon",
+          updated_at: nowIso,
+        },
+      ],
+      { onConflict: "user_id,lab_id" },
+    ),
+  ]);
+
+  if (orderRes.error) {
+    return { error: orderRes.error.message };
+  }
+  if (entitlementRes.error) {
+    return { error: entitlementRes.error.message };
+  }
+
+  return {};
 }
 
 function selectPrice(

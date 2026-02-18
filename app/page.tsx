@@ -4,6 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import LogoutButton from "@/components/LogoutButton";
 import PurchasePlaceholder from "@/components/PurchasePlaceholder";
+import PaymentStatusNotice from "@/components/PaymentStatusNotice";
 
 type LabCard = {
   id: string;
@@ -173,10 +174,9 @@ export default async function Home({
 
       <main className="relative max-w-7xl mx-auto px-6 pb-24">
         {paymentCancelled && (
-          <div className="mb-4 rounded-lg border border-[var(--ast-coral)]/50 bg-[var(--ast-rust)]/30 px-4 py-3 text-sm text-[var(--ast-bone)]">
-            Pago cancelado. Tu acceso sigue bloqueado
-            {cancelledLabTitle ? ` para "${cancelledLabTitle}"` : ""}.
-          </div>
+          <PaymentStatusNotice
+            message={`Pago cancelado. Tu acceso sigue bloqueado${cancelledLabTitle ? ` para "${cancelledLabTitle}"` : ""}.`}
+          />
         )}
         {user ? (
           <div className="space-y-6">
