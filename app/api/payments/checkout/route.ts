@@ -6,8 +6,14 @@ export const runtime = "nodejs";
 
 type CheckoutPayload = {
   labId?: unknown;
+  labIds?: unknown;
   currency?: unknown;
   couponCode?: unknown;
+};
+
+type LabRow = {
+  id: string;
+  title: string;
 };
 
 type LabPriceRow = {
@@ -26,6 +32,12 @@ type CouponRow = {
   lab_id: string | null;
   is_active: boolean;
   expires_at: string | null;
+};
+
+type LineItem = {
+  labId: string;
+  labTitle: string;
+  amountCents: number;
 };
 
 const VALID_CURRENCIES = new Set(["USD", "MXN"]);
@@ -57,70 +69,93 @@ export async function POST(request: Request) {
   }
 
   const body = (await request.json()) as CheckoutPayload;
-  const labId = typeof body.labId === "string" ? body.labId : "";
   const requestedCurrency =
     typeof body.currency === "string" ? body.currency.toUpperCase() : "";
   const couponCode =
     typeof body.couponCode === "string" ? body.couponCode.trim().toUpperCase() : "";
+  const requestedLabIds = normalizeLabIds(body.labIds, body.labId);
 
-  if (!labId) {
-    return NextResponse.json({ error: "labId requerido" }, { status: 400 });
+  if (requestedLabIds.length === 0) {
+    return NextResponse.json({ error: "labId o labIds requerido" }, { status: 400 });
+  }
+  if (!VALID_CURRENCIES.has(requestedCurrency)) {
+    return NextResponse.json({ error: "Moneda inválida" }, { status: 400 });
   }
 
   const [
-    { data: lab, error: labError },
+    { data: labs, error: labsError },
     { data: prices, error: pricesError },
-    { data: entitlement, error: entitlementError },
+    { data: activeEntitlements, error: entitlementsError },
   ] = await Promise.all([
-    admin.from("labs").select("id, title").eq("id", labId).maybeSingle(),
+    admin.from("labs").select("id, title").in("id", requestedLabIds),
     admin
       .from("lab_prices")
       .select("lab_id, currency, amount_cents, is_active")
-      .eq("lab_id", labId)
-      .eq("is_active", true),
+      .in("lab_id", requestedLabIds)
+      .eq("is_active", true)
+      .eq("currency", requestedCurrency),
     admin
       .from("lab_entitlements")
-      .select("id")
+      .select("lab_id")
       .eq("user_id", user.id)
-      .eq("lab_id", labId)
       .eq("status", "active")
-      .maybeSingle(),
+      .in("lab_id", requestedLabIds),
   ]);
 
-  if (labError) {
-    return NextResponse.json({ error: labError.message }, { status: 500 });
-  }
-  if (!lab) {
-    return NextResponse.json({ error: "Lab no encontrado" }, { status: 404 });
+  if (labsError) {
+    return NextResponse.json({ error: labsError.message }, { status: 500 });
   }
   if (pricesError) {
     return NextResponse.json({ error: pricesError.message }, { status: 500 });
   }
-  if (entitlementError) {
-    return NextResponse.json({ error: entitlementError.message }, { status: 500 });
+  if (entitlementsError) {
+    return NextResponse.json({ error: entitlementsError.message }, { status: 500 });
   }
-  if (entitlement) {
+
+  const labRows = (labs ?? []) as LabRow[];
+  if (labRows.length === 0) {
+    return NextResponse.json({ error: "Labs no encontrados" }, { status: 404 });
+  }
+
+  const ownedLabIds = new Set(
+    (activeEntitlements ?? [])
+      .map((row) => row.lab_id)
+      .filter((id): id is string => typeof id === "string"),
+  );
+
+  const pricesByLab = new Map<string, LabPriceRow>();
+  for (const row of (prices ?? []) as LabPriceRow[]) {
+    pricesByLab.set(row.lab_id, row);
+  }
+
+  const labsById = new Map(labRows.map((row) => [row.id, row]));
+  const payableLines: LineItem[] = [];
+
+  for (const labId of requestedLabIds) {
+    if (ownedLabIds.has(labId)) continue;
+    const lab = labsById.get(labId);
+    const price = pricesByLab.get(labId);
+    if (!lab || !price) {
+      return NextResponse.json(
+        { error: `El lab seleccionado no tiene precio en ${requestedCurrency}` },
+        { status: 400 },
+      );
+    }
+    payableLines.push({
+      labId,
+      labTitle: lab.title,
+      amountCents: price.amount_cents,
+    });
+  }
+
+  if (payableLines.length === 0) {
     return NextResponse.json(
-      { error: "Ya tienes acceso activo a este lab" },
+      { error: "Ya tienes acceso activo a todos los labs seleccionados" },
       { status: 409 },
     );
   }
 
-  const activePrices = (prices ?? []) as LabPriceRow[];
-  if (activePrices.length === 0) {
-    return NextResponse.json(
-      { error: "No hay precio activo para este lab" },
-      { status: 400 },
-    );
-  }
-
-  const selectedPrice = selectPrice(activePrices, requestedCurrency);
-  if (!selectedPrice) {
-    return NextResponse.json(
-      { error: "No hay precio activo en esa moneda" },
-      { status: 400 },
-    );
-  }
+  const originalAmountCents = payableLines.reduce((sum, line) => sum + line.amountCents, 0);
 
   let discountCents = 0;
   let appliedCoupon: CouponRow | null = null;
@@ -141,31 +176,33 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Cupón no encontrado" }, { status: 400 });
     }
 
-    const couponRow = coupon as CouponRow;
-    const couponValidation = validateCouponForPurchase(
-      couponRow,
-      labId,
-      selectedPrice.currency,
-      selectedPrice.amount_cents,
+    const couponResult = validateCouponForLines(
+      coupon as CouponRow,
+      requestedCurrency as "USD" | "MXN",
+      payableLines,
     );
 
-    if (couponValidation.error) {
-      return NextResponse.json({ error: couponValidation.error }, { status: 400 });
+    if (couponResult.error) {
+      return NextResponse.json({ error: couponResult.error }, { status: 400 });
     }
 
-    discountCents = couponValidation.discountCents;
-    appliedCoupon = couponRow;
+    discountCents = couponResult.discountCents;
+    appliedCoupon = coupon as CouponRow;
   }
 
-  const finalAmountCents = Math.max(selectedPrice.amount_cents - discountCents, 0);
+  const finalAmountCents = Math.max(originalAmountCents - discountCents, 0);
+  const appUrl = resolveAppUrl(request);
+  const labIds = payableLines.map((line) => line.labId);
+  const successUrl = resolveSuccessUrl(appUrl, labIds);
+  const cancelUrl = resolveCancelUrl(appUrl, labIds);
+
   if (finalAmountCents <= 0) {
-    const appUrl = resolveAppUrl(request);
     const freeGrantResult = await grantFreeAccess({
       admin,
       userId: user.id,
-      labId,
-      currency: selectedPrice.currency,
-      originalAmountCents: selectedPrice.amount_cents,
+      labIds,
+      currency: requestedCurrency as "USD" | "MXN",
+      originalAmountCents,
       discountCents,
       couponCode: (appliedCoupon?.code ?? couponCode) || null,
     });
@@ -175,28 +212,27 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json({
-      url: `${appUrl}/labs/${labId}?payment=success&source=coupon`,
+      url: `${successUrl}${successUrl.includes("?") ? "&" : "?"}source=coupon`,
       amountCents: 0,
       discountCents,
-      currency: selectedPrice.currency,
+      currency: requestedCurrency,
       freeAccess: true,
     });
   }
 
-  const appUrl = resolveAppUrl(request);
   const stripeSessionRes = await createStripeCheckoutSession({
     stripeSecretKey,
-    labId,
-    labTitle: lab.title as string,
+    labTitles: payableLines.map((line) => line.labTitle),
+    labIds,
     userId: user.id,
     userEmail: user.email ?? null,
-    currency: selectedPrice.currency,
+    currency: requestedCurrency as "USD" | "MXN",
     finalAmountCents,
-    originalAmountCents: selectedPrice.amount_cents,
+    originalAmountCents,
     discountCents,
     couponCode: appliedCoupon?.code ?? null,
-    successUrl: `${appUrl}/labs/${labId}?payment=success`,
-    cancelUrl: `${appUrl}/?payment=cancelled&lab=${labId}`,
+    successUrl,
+    cancelUrl,
   });
 
   if (stripeSessionRes.error) {
@@ -207,21 +243,26 @@ export async function POST(request: Request) {
     url: stripeSessionRes.url,
     amountCents: finalAmountCents,
     discountCents,
-    currency: selectedPrice.currency,
+    currency: requestedCurrency,
   });
 }
 
 async function grantFreeAccess(params: {
   admin: NonNullable<ReturnType<typeof createAdminClient>>;
   userId: string;
-  labId: string;
+  labIds: string[];
   currency: "USD" | "MXN";
   originalAmountCents: number;
   discountCents: number;
   couponCode: string | null;
 }): Promise<{ error?: string }> {
+  const primaryLabId = params.labIds[0];
+  if (!primaryLabId) {
+    return { error: "No hay labs para otorgar acceso" };
+  }
+
   const nowIso = new Date().toISOString();
-  const syntheticSessionId = `coupon_free_${params.userId}_${params.labId}_${Date.now()}`;
+  const syntheticSessionId = `coupon_free_${params.userId}_${Date.now()}`;
 
   const [orderRes, entitlementRes] = await Promise.all([
     params.admin.from("payment_orders").insert([
@@ -229,13 +270,15 @@ async function grantFreeAccess(params: {
         stripe_session_id: syntheticSessionId,
         stripe_payment_intent_id: null,
         user_id: params.userId,
-        lab_id: params.labId,
+        lab_id: primaryLabId,
         amount_cents: 0,
         currency: params.currency,
         coupon_code: params.couponCode,
         status: "paid",
         source: "coupon",
         metadata: {
+          lab_ids: params.labIds.join(","),
+          lab_count: params.labIds.length,
           original_amount_cents: params.originalAmountCents,
           discount_cents: params.discountCents,
           grant_type: "free_coupon",
@@ -244,15 +287,13 @@ async function grantFreeAccess(params: {
       },
     ]),
     params.admin.from("lab_entitlements").upsert(
-      [
-        {
-          user_id: params.userId,
-          lab_id: params.labId,
-          status: "active",
-          source: "coupon",
-          updated_at: nowIso,
-        },
-      ],
+      params.labIds.map((labId) => ({
+        user_id: params.userId,
+        lab_id: labId,
+        status: "active",
+        source: "coupon",
+        updated_at: nowIso,
+      })),
       { onConflict: "user_id,lab_id" },
     ),
   ]);
@@ -267,42 +308,46 @@ async function grantFreeAccess(params: {
   return {};
 }
 
-function selectPrice(
-  prices: LabPriceRow[],
-  requestedCurrency: string,
-): LabPriceRow | null {
-  if (requestedCurrency && VALID_CURRENCIES.has(requestedCurrency)) {
-    const exact = prices.find((price) => price.currency === requestedCurrency);
-    if (exact) return exact;
-  }
-
-  const usd = prices.find((price) => price.currency === "USD");
-  if (usd) return usd;
-  const mxn = prices.find((price) => price.currency === "MXN");
-  if (mxn) return mxn;
-  return prices[0] ?? null;
+function normalizeLabIds(labIds: unknown, labId: unknown): string[] {
+  const fromArray = Array.isArray(labIds)
+    ? labIds.filter((item): item is string => typeof item === "string")
+    : [];
+  const fromSingle = typeof labId === "string" && labId ? [labId] : [];
+  return Array.from(
+    new Set(
+      [...fromArray, ...fromSingle]
+        .map((id) => id.trim())
+        .filter(Boolean),
+    ),
+  );
 }
 
-function validateCouponForPurchase(
+function validateCouponForLines(
   coupon: CouponRow,
-  labId: string,
   currency: "USD" | "MXN",
-  amountCents: number,
+  lines: LineItem[],
 ): { discountCents: number; error?: string } {
   if (!coupon.is_active) return { discountCents: 0, error: "Cupón inactivo" };
   if (coupon.expires_at && new Date(coupon.expires_at).getTime() <= Date.now()) {
     return { discountCents: 0, error: "Cupón expirado" };
   }
-  if (coupon.lab_id && coupon.lab_id !== labId) {
-    return { discountCents: 0, error: "Cupón no válido para este lab" };
+
+  const targetLines = coupon.lab_id
+    ? lines.filter((line) => line.labId === coupon.lab_id)
+    : lines;
+
+  if (targetLines.length === 0) {
+    return { discountCents: 0, error: "Cupón no válido para este carrito" };
   }
+
+  const targetSubtotal = targetLines.reduce((sum, line) => sum + line.amountCents, 0);
 
   if (coupon.discount_type === "percent") {
     const percent = coupon.percent_off ?? 0;
     if (percent <= 0 || percent > 100) {
       return { discountCents: 0, error: "Cupón de porcentaje inválido" };
     }
-    return { discountCents: Math.round((amountCents * percent) / 100) };
+    return { discountCents: Math.round((targetSubtotal * percent) / 100) };
   }
 
   if (!coupon.amount_off_cents || coupon.amount_off_cents <= 0) {
@@ -315,7 +360,15 @@ function validateCouponForPurchase(
     };
   }
 
-  return { discountCents: Math.min(coupon.amount_off_cents, amountCents) };
+  return { discountCents: Math.min(coupon.amount_off_cents, targetSubtotal) };
+}
+
+function resolveSuccessUrl(appUrl: string, labIds: string[]): string {
+  return `${appUrl}/cart?payment=success&labs=${encodeURIComponent(labIds.join(","))}`;
+}
+
+function resolveCancelUrl(appUrl: string, labIds: string[]): string {
+  return `${appUrl}/cart?payment=cancelled&labs=${encodeURIComponent(labIds.join(","))}`;
 }
 
 function resolveAppUrl(request: Request): string {
@@ -332,8 +385,8 @@ function resolveAppUrl(request: Request): string {
 
 async function createStripeCheckoutSession(params: {
   stripeSecretKey: string;
-  labId: string;
-  labTitle: string;
+  labTitles: string[];
+  labIds: string[];
   userId: string;
   userEmail: string | null;
   currency: "USD" | "MXN";
@@ -352,14 +405,28 @@ async function createStripeCheckoutSession(params: {
   form.set("line_items[0][quantity]", "1");
   form.set("line_items[0][price_data][currency]", params.currency.toLowerCase());
   form.set("line_items[0][price_data][unit_amount]", String(params.finalAmountCents));
-  form.set("line_items[0][price_data][product_data][name]", `Lab: ${params.labTitle}`);
+  form.set(
+    "line_items[0][price_data][product_data][name]",
+    params.labIds.length === 1
+      ? `Lab: ${params.labTitles[0] ?? "Astrolab"}`
+      : `Carrito Astrolab (${params.labIds.length} labs)`,
+  );
+
+  if (params.labIds.length > 1) {
+    form.set(
+      "line_items[0][price_data][product_data][description]",
+      params.labTitles.slice(0, 3).join(", "),
+    );
+  }
 
   if (params.userEmail) {
     form.set("customer_email", params.userEmail);
   }
 
   form.set("metadata[user_id]", params.userId);
-  form.set("metadata[lab_id]", params.labId);
+  form.set("metadata[lab_id]", params.labIds[0] ?? "");
+  form.set("metadata[lab_ids]", params.labIds.join(","));
+  form.set("metadata[lab_count]", String(params.labIds.length));
   form.set("metadata[coupon_code]", params.couponCode ?? "");
   form.set("metadata[currency]", params.currency);
   form.set("metadata[original_amount_cents]", String(params.originalAmountCents));

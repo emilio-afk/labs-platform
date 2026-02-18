@@ -19,6 +19,7 @@ export type AdminLab = {
   id: string;
   title: string;
   description: string | null;
+  labels?: string[] | null;
   created_at: string;
 };
 
@@ -121,6 +122,9 @@ export default function AdminPanel({
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [labelsInput, setLabelsInput] = useState("");
+  const [labLabelDrafts, setLabLabelDrafts] = useState<Record<string, string>>({});
+  const [savingLabelsLabId, setSavingLabelsLabId] = useState<string | null>(null);
   const [msg, setMsg] = useState("");
 
   const [selectedLab, setSelectedLab] = useState<string | null>(
@@ -182,7 +186,7 @@ export default function AdminPanel({
   const fetchLabs = useCallback(async () => {
     const { data, error } = await supabase
       .from("labs")
-      .select("id, title, description, created_at")
+      .select("*")
       .order("created_at", { ascending: false });
 
     if (!error && data) {
@@ -431,16 +435,69 @@ export default function AdminPanel({
     e.preventDefault();
     setMsg("Guardando Lab...");
 
-    const { error } = await supabase.from("labs").insert([{ title, description }]);
-    if (error) {
-      setMsg("Error: " + error.message);
+    const normalizedLabels = parseLabelsInput(labelsInput);
+
+    const { error: insertError } = await supabase.from("labs").insert([
+      {
+        title,
+        description,
+        labels: normalizedLabels,
+      },
+    ]);
+    let finalError = insertError;
+
+    if (finalError && isMissingLabelsColumnError(finalError.message)) {
+      const fallback = await supabase.from("labs").insert([{ title, description }]);
+      finalError = fallback.error;
+      if (!finalError) {
+        setMsg(
+          "Lab creado. Para etiquetas persistentes, ejecuta docs/supabase-lab-labels.sql",
+        );
+        setTitle("");
+        setDescription("");
+        setLabelsInput("");
+        await fetchLabs();
+        return;
+      }
+    }
+
+    if (finalError) {
+      setMsg("Error: " + finalError.message);
       return;
     }
 
     setMsg("Lab creado");
     setTitle("");
     setDescription("");
+    setLabelsInput("");
     await fetchLabs();
+  };
+
+  const saveLabLabels = async (labId: string) => {
+    const rawValue = labLabelDrafts[labId] ?? "";
+    const labels = parseLabelsInput(rawValue);
+    setSavingLabelsLabId(labId);
+    setMsg("Guardando etiquetas...");
+
+    const { error } = await supabase.from("labs").update({ labels }).eq("id", labId);
+
+    if (error && isMissingLabelsColumnError(error.message)) {
+      setMsg("Falta columna labels. Ejecuta docs/supabase-lab-labels.sql");
+      setSavingLabelsLabId(null);
+      return;
+    }
+
+    if (error) {
+      setMsg("Error: " + error.message);
+      setSavingLabelsLabId(null);
+      return;
+    }
+
+    setLabs((prev) =>
+      prev.map((lab) => (lab.id === labId ? { ...lab, labels } : lab)),
+    );
+    setMsg("Etiquetas guardadas");
+    setSavingLabelsLabId(null);
   };
 
   const saveHeroSettings = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -1103,6 +1160,13 @@ export default function AdminPanel({
                 onChange={(e) => setDescription(e.target.value)}
               />
             </div>
+            <input
+              type="text"
+              placeholder="Etiquetas (coma): NEW, TOP, AUDIO"
+              className="p-2 rounded bg-black border border-gray-600 w-full"
+              value={labelsInput}
+              onChange={(e) => setLabelsInput(e.target.value)}
+            />
             <button
               type="submit"
               className="bg-blue-600 hover:bg-blue-700 px-6 py-2 rounded text-white font-bold"
@@ -1122,9 +1186,44 @@ export default function AdminPanel({
                   key={lab.id}
                   className="flex items-center justify-between gap-3 rounded border border-gray-700 bg-black/30 p-3"
                 >
-                  <div>
+                  <div className="flex-1">
                     <p className="text-sm font-semibold text-gray-100">{lab.title}</p>
                     <p className="text-xs text-gray-500">{lab.description ?? "Sin descripción"}</p>
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {normalizeLabels(lab.labels).map((label) => (
+                        <span
+                          key={`${lab.id}-${label}`}
+                          className="rounded-full border border-cyan-500/50 bg-cyan-900/30 px-2 py-0.5 text-[10px] font-semibold text-cyan-200"
+                        >
+                          {label}
+                        </span>
+                      ))}
+                      {normalizeLabels(lab.labels).length === 0 && (
+                        <span className="text-[10px] text-gray-500">Sin etiquetas</span>
+                      )}
+                    </div>
+                    <div className="mt-2 flex gap-2">
+                      <input
+                        type="text"
+                        value={labLabelDrafts[lab.id] ?? formatLabelsForInput(lab.labels)}
+                        onChange={(e) =>
+                          setLabLabelDrafts((prev) => ({
+                            ...prev,
+                            [lab.id]: e.target.value,
+                          }))
+                        }
+                        placeholder="NEW, TOP, ETC"
+                        className="w-full max-w-sm rounded border border-gray-600 bg-black p-1.5 text-xs"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void saveLabLabels(lab.id)}
+                        disabled={savingLabelsLabId === lab.id}
+                        className="px-2 py-1 text-xs rounded bg-cyan-800 hover:bg-cyan-700 disabled:opacity-60"
+                      >
+                        {savingLabelsLabId === lab.id ? "Guardando..." : "Guardar etiquetas"}
+                      </button>
+                    </div>
                   </div>
                   <div className="flex gap-2">
                     <button
@@ -2119,4 +2218,36 @@ function getFileAcceptForBlock(type: DayBlockType): string {
   if (type === "image") return "image/*";
   if (type === "file") return ".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,.zip";
   return "*/*";
+}
+
+function normalizeLabels(labels: string[] | null | undefined): string[] {
+  if (!Array.isArray(labels)) return [];
+  return labels
+    .map((label) => (typeof label === "string" ? label.trim().toUpperCase() : ""))
+    .filter(Boolean)
+    .slice(0, 8);
+}
+
+function formatLabelsForInput(labels: string[] | null | undefined): string {
+  return normalizeLabels(labels).join(", ");
+}
+
+function parseLabelsInput(raw: string): string[] {
+  return Array.from(
+    new Set(
+      raw
+        .split(",")
+        .map((item) => item.trim().toUpperCase())
+        .filter(Boolean),
+    ),
+  ).slice(0, 8);
+}
+
+function isMissingLabelsColumnError(message: string): boolean {
+  const lower = message.toLowerCase();
+  return (
+    lower.includes("column") &&
+    lower.includes("labels") &&
+    (lower.includes("does not exist") || lower.includes("schema cache"))
+  );
 }

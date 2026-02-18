@@ -29,7 +29,7 @@ export default async function AdminPage() {
 
   const { data: labs } = await supabase
     .from("labs")
-    .select("id, title, description, created_at")
+    .select("*")
     .order("created_at", { ascending: false });
   const { data: settings } = (await supabase
     .from("app_settings")

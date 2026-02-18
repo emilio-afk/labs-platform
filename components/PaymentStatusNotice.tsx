@@ -1,11 +1,24 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { removeLabsFromCart } from "@/utils/cartClient";
 
-export default function PaymentStatusNotice({ message }: { message: string }) {
+export default function PaymentStatusNotice({
+  message,
+  tone = "error",
+  clearCartLabIds = [],
+}: {
+  message: string;
+  tone?: "success" | "error";
+  clearCartLabIds?: string[];
+}) {
   const [visible, setVisible] = useState(true);
 
   useEffect(() => {
+    if (clearCartLabIds.length > 0) {
+      removeLabsFromCart(clearCartLabIds);
+    }
+
     const hideTimer = setTimeout(() => {
       setVisible(false);
       removePaymentQueryParams();
@@ -14,12 +27,18 @@ export default function PaymentStatusNotice({ message }: { message: string }) {
     return () => {
       clearTimeout(hideTimer);
     };
-  }, []);
+  }, [clearCartLabIds]);
 
   if (!visible) return null;
 
   return (
-    <div className="mb-4 rounded-lg border border-[var(--ast-coral)]/50 bg-[var(--ast-rust)]/30 px-4 py-3 text-sm text-[var(--ast-bone)] transition-opacity duration-300">
+    <div
+      className={`mb-4 rounded-lg px-4 py-3 text-sm text-[var(--ast-bone)] transition-opacity duration-300 ${
+        tone === "success"
+          ? "border border-[var(--ast-mint)]/45 bg-[var(--ast-forest)]/25"
+          : "border border-[var(--ast-coral)]/50 bg-[var(--ast-rust)]/30"
+      }`}
+    >
       {message}
     </div>
   );
@@ -31,6 +50,7 @@ function removePaymentQueryParams() {
   const url = new URL(window.location.href);
   url.searchParams.delete("payment");
   url.searchParams.delete("lab");
+  url.searchParams.delete("labs");
   const nextUrl = `${url.pathname}${url.search}${url.hash}`;
   window.history.replaceState({}, "", nextUrl);
 }

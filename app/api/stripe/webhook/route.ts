@@ -61,10 +61,12 @@ export async function POST(request: Request) {
 
   const metadata = (object.metadata ?? {}) as Record<string, unknown>;
   const userId = getString(metadata.user_id) || getString(object.client_reference_id);
-  const labId = getString(metadata.lab_id);
+  const metadataLabIds = parseLabIds(getString(metadata.lab_ids));
+  const fallbackLabId = getString(metadata.lab_id);
+  const labIds = metadataLabIds.length > 0 ? metadataLabIds : fallbackLabId ? [fallbackLabId] : [];
   const couponCode = getString(metadata.coupon_code) || null;
 
-  if (!userId || !labId) {
+  if (!userId || labIds.length === 0) {
     return NextResponse.json({ ok: true, ignored: true });
   }
 
@@ -73,17 +75,23 @@ export async function POST(request: Request) {
   const paymentStatus = getString(object.payment_status);
   const orderStatus = mapOrderStatus(eventType, paymentStatus);
 
+  const primaryLabId = labIds[0];
+
   const orderPayload = {
     stripe_session_id: sessionId,
     stripe_payment_intent_id: getString(object.payment_intent) || null,
     user_id: userId,
-    lab_id: labId,
+    lab_id: primaryLabId,
     amount_cents: amountTotal,
     currency,
     coupon_code: couponCode,
     status: orderStatus,
     source: "stripe",
-    metadata,
+    metadata: {
+      ...metadata,
+      lab_ids: labIds.join(","),
+      lab_count: labIds.length,
+    },
     updated_at: new Date().toISOString(),
   };
 
@@ -98,15 +106,13 @@ export async function POST(request: Request) {
 
   if (orderStatus === "paid") {
     const { error: entitlementError } = await admin.from("lab_entitlements").upsert(
-      [
-        {
-          user_id: userId,
-          lab_id: labId,
-          status: "active",
-          source: "stripe",
-          updated_at: new Date().toISOString(),
-        },
-      ],
+      labIds.map((labId) => ({
+        user_id: userId,
+        lab_id: labId,
+        status: "active",
+        source: "stripe",
+        updated_at: new Date().toISOString(),
+      })),
       { onConflict: "user_id,lab_id" },
     );
 
@@ -205,4 +211,16 @@ function parseStripeSignatureHeader(signatureHeader: string): {
   }
 
   return { timestamp, v1 };
+}
+
+function parseLabIds(raw: string): string[] {
+  if (!raw) return [];
+  return Array.from(
+    new Set(
+      raw
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean),
+    ),
+  );
 }
