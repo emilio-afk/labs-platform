@@ -7,6 +7,8 @@ import PaymentStatusNotice from "@/components/PaymentStatusNotice";
 import CartNavLink from "@/components/CartNavLink";
 import AddToCartButton from "@/components/AddToCartButton";
 import LabsMarketplace, { type MarketplaceLab } from "@/components/LabsMarketplace";
+import { getLabPalette } from "@/utils/labPalette";
+import { resolveLabCardImage } from "@/utils/labCardImages";
 
 type LabCard = {
   id: string;
@@ -14,6 +16,9 @@ type LabCard = {
   description: string | null;
   labels?: string[] | null;
   created_at: string | null;
+  cover_image_url?: string | null;
+  image_url?: string | null;
+  background_image_url?: string | null;
 };
 
 type LabPrice = {
@@ -107,6 +112,7 @@ export default async function Home({
     description: lab.description,
     labels: normalizeLabLabels(lab.labels),
     createdAt: lab.created_at,
+    backgroundImageUrl: resolveLabCardImage(lab),
     hasAccess: isAdmin || (Boolean(user) && accessibleLabIds.has(lab.id)),
     prices: pricesByLab.get(lab.id) ?? [],
   }));
@@ -129,7 +135,10 @@ export default async function Home({
     .filter((title): title is string => Boolean(title));
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[var(--ast-black)] text-[var(--ast-white)] selection:bg-[var(--ast-mint)]/35">
+    <div
+      id="top"
+      className="relative min-h-screen overflow-x-hidden bg-[var(--ast-black)] text-[var(--ast-white)] selection:bg-[var(--ast-mint)]/35"
+    >
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(10,86,198,0.35),transparent_45%),radial-gradient(circle_at_80%_20%,rgba(4,164,90,0.18),transparent_30%),radial-gradient(circle_at_bottom,rgba(1,25,99,0.55),transparent_55%)]" />
 
       <nav className="relative mx-auto flex max-w-7xl items-center justify-between border-b border-[var(--ast-cobalt)]/35 px-6 py-3">
@@ -167,7 +176,7 @@ export default async function Home({
         </div>
       </nav>
 
-      <header className="relative mx-auto grid max-w-7xl gap-7 px-6 pb-8 pt-6 md:grid-cols-[1.04fr_0.96fr] md:items-center">
+      <header className="relative mx-auto grid max-w-7xl gap-7 px-6 pb-14 pt-6 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] md:items-center">
         <div>
           <div className="mb-3 inline-flex rounded-full border border-[var(--ast-sky)]/40 bg-[var(--ast-cobalt)]/28 px-4 py-1 text-[11px] uppercase tracking-[0.15em] text-[var(--ast-sky)]/90">
             Escaparate de Labs
@@ -296,7 +305,7 @@ export default async function Home({
         </div>
       </header>
 
-      <main className="relative mx-auto max-w-7xl px-6 pb-24">
+      <main className="relative mx-auto max-w-7xl px-6 pb-24 pt-2 md:pt-4">
         {paymentCancelled && (
           <PaymentStatusNotice
             message={`Pago cancelado. Tu acceso sigue bloqueado${
@@ -352,12 +361,21 @@ export default async function Home({
               <div className="grid gap-4 lg:grid-cols-3">
                 {featuredLabs.map((lab, index) => {
                   const priceSummary = formatPriceSummary(lab.prices);
+                  const palette = getLabPalette(lab.id, lab.backgroundImageUrl);
                   return (
                     <article
                       key={lab.id}
-                      className="group relative overflow-hidden rounded-2xl border border-[var(--ast-sky)]/28 bg-[linear-gradient(180deg,rgba(10,86,198,0.28),rgba(1,25,99,0.30))] p-6 transition duration-300 hover:-translate-y-1 hover:border-[var(--ast-sky)]/45"
+                      className="group relative overflow-hidden rounded-2xl border p-6 transition duration-300 hover:-translate-y-1"
+                      style={{
+                        background: palette.cardBackground,
+                        borderColor: palette.borderColor,
+                        boxShadow: palette.outlineShadow,
+                      }}
                     >
-                      <div className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full bg-[var(--ast-mint)]/10 blur-2xl" />
+                      <div
+                        className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full blur-2xl"
+                        style={{ background: palette.glowColor }}
+                      />
                       <div className="relative">
                         <div className="mb-3 flex items-center gap-2">
                           <span className="rounded-full border border-[var(--ast-yellow)]/45 bg-[var(--ast-rust)]/35 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--ast-yellow)]">
@@ -366,7 +384,12 @@ export default async function Home({
                           {lab.labels.map((label) => (
                             <span
                               key={`${lab.id}-featured-${label}`}
-                              className="rounded-full border border-[var(--ast-sky)]/40 bg-[var(--ast-cobalt)]/35 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--ast-sky)]"
+                              className="rounded-full border px-2 py-1 text-[10px] font-semibold uppercase tracking-wide"
+                              style={{
+                                borderColor: palette.borderColor,
+                                background: palette.chipBackground,
+                                color: palette.chipTextColor,
+                              }}
                             >
                               {label}
                             </span>
@@ -379,7 +402,7 @@ export default async function Home({
                         <p className="mt-3 min-h-[48px] text-sm leading-relaxed text-[var(--ast-bone)]/78">
                           {lab.description ?? "Sin descripción"}
                         </p>
-                        <p className="mt-4 text-sm font-bold text-[var(--ast-sky)]">
+                        <p className="mt-4 text-sm font-bold" style={{ color: palette.accentColor }}>
                           {priceSummary}
                         </p>
 
@@ -443,6 +466,7 @@ export default async function Home({
           </div>
         )}
       </main>
+
     </div>
   );
 }

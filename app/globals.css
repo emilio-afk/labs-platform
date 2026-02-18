@@ -36,3 +36,138 @@ body {
   color: var(--foreground);
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
 }
+
+.ast-constellation-glow {
+  background:
+    radial-gradient(42% 44% at 20% 20%, rgba(10, 86, 198, 0.22), transparent 72%),
+    radial-gradient(36% 40% at 74% 26%, rgba(4, 164, 90, 0.16), transparent 74%),
+    radial-gradient(34% 34% at 60% 72%, rgba(243, 177, 215, 0.12), transparent 76%);
+  filter: blur(54px);
+  opacity: 0.44;
+  mix-blend-mode: screen;
+  will-change: transform, opacity;
+  animation: ast-constellation-glow-drift 46s ease-in-out infinite alternate;
+}
+
+.ast-constellation-links {
+  background:
+    repeating-linear-gradient(
+      26deg,
+      rgba(185, 214, 254, 0.12) 0 1px,
+      transparent 1px 140px
+    ),
+    repeating-linear-gradient(
+      -32deg,
+      rgba(4, 164, 90, 0.1) 0 1px,
+      transparent 1px 160px
+    );
+  background-size: 140% 140%, 140% 140%;
+  opacity: 0.22;
+  mask-image: radial-gradient(circle at 48% 34%, black 18%, transparent 80%);
+  will-change: transform, opacity;
+  animation: ast-constellation-links-pan 52s linear infinite;
+}
+
+.ast-constellation-nodes {
+  background:
+    radial-gradient(circle at 8% 18%, rgba(185, 214, 254, 0.8) 0 1.8px, transparent 2.2px),
+    radial-gradient(circle at 14% 42%, rgba(185, 214, 254, 0.72) 0 1.6px, transparent 2.2px),
+    radial-gradient(circle at 21% 28%, rgba(4, 164, 90, 0.65) 0 1.8px, transparent 2.3px),
+    radial-gradient(circle at 28% 64%, rgba(185, 214, 254, 0.68) 0 1.7px, transparent 2.3px),
+    radial-gradient(circle at 36% 20%, rgba(243, 177, 215, 0.65) 0 1.8px, transparent 2.3px),
+    radial-gradient(circle at 44% 52%, rgba(185, 214, 254, 0.72) 0 1.8px, transparent 2.4px),
+    radial-gradient(circle at 54% 18%, rgba(4, 164, 90, 0.68) 0 1.9px, transparent 2.4px),
+    radial-gradient(circle at 61% 44%, rgba(185, 214, 254, 0.7) 0 1.7px, transparent 2.3px),
+    radial-gradient(circle at 70% 24%, rgba(243, 177, 215, 0.6) 0 1.6px, transparent 2.2px),
+    radial-gradient(circle at 78% 56%, rgba(185, 214, 254, 0.74) 0 1.8px, transparent 2.3px),
+    radial-gradient(circle at 86% 32%, rgba(4, 164, 90, 0.64) 0 1.7px, transparent 2.2px),
+    radial-gradient(circle at 92% 64%, rgba(185, 214, 254, 0.68) 0 1.6px, transparent 2.2px);
+  opacity: 0.5;
+  will-change: transform, opacity;
+  animation:
+    ast-constellation-nodes-drift 58s ease-in-out infinite alternate,
+    ast-constellation-nodes-twinkle 9s ease-in-out infinite;
+}
+
+.ast-constellation-sweep {
+  background: linear-gradient(
+    110deg,
+    transparent 34%,
+    rgba(185, 214, 254, 0.08) 50%,
+    transparent 66%
+  );
+  filter: blur(12px);
+  opacity: 0.28;
+  mix-blend-mode: screen;
+  will-change: transform;
+  animation: ast-constellation-sweep 34s ease-in-out infinite;
+}
+
+@keyframes ast-constellation-glow-drift {
+  0% {
+    transform: translate3d(-4%, -2%, 0) scale(1);
+    opacity: 0.38;
+  }
+  50% {
+    transform: translate3d(2%, 1%, 0) scale(1.04);
+    opacity: 0.5;
+  }
+  100% {
+    transform: translate3d(5%, -1%, 0) scale(1.02);
+    opacity: 0.42;
+  }
+}
+
+@keyframes ast-constellation-links-pan {
+  0% {
+    transform: translate3d(-2%, -1%, 0);
+  }
+  100% {
+    transform: translate3d(3%, 2%, 0);
+  }
+}
+
+@keyframes ast-constellation-nodes-drift {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(-1.5%, 1.2%, 0);
+  }
+  100% {
+    transform: translate3d(2%, -1%, 0);
+  }
+}
+
+@keyframes ast-constellation-nodes-twinkle {
+  0% {
+    opacity: 0.44;
+  }
+  50% {
+    opacity: 0.62;
+  }
+  100% {
+    opacity: 0.5;
+  }
+}
+
+@keyframes ast-constellation-sweep {
+  0% {
+    transform: translate3d(-24%, -1%, 0) rotate(-1.5deg);
+  }
+  50% {
+    transform: translate3d(0, 0, 0) rotate(-1.5deg);
+  }
+  100% {
+    transform: translate3d(24%, 1%, 0) rotate(-1.5deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ast-constellation-glow,
+  .ast-constellation-links,
+  .ast-constellation-nodes,
+  .ast-constellation-sweep {
+    animation: none;
+  }
+}

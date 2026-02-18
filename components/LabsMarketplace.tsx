@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import AddToCartButton from "@/components/AddToCartButton";
+import { getLabPalette } from "@/utils/labPalette";
 
 type Currency = "USD" | "MXN";
 
@@ -12,6 +13,7 @@ export type MarketplaceLab = {
   description: string | null;
   labels: string[];
   createdAt: string | null;
+  backgroundImageUrl?: string | null;
   hasAccess: boolean;
   prices: Array<{
     currency: Currency;
@@ -78,7 +80,7 @@ export default function LabsMarketplace({
 
   return (
     <section className="space-y-4">
-      <div className="sticky top-2 z-20 rounded-xl border border-white/8 bg-[rgba(38,38,38,0.72)] p-2 shadow-[0_6px_18px_rgba(0,0,0,0.22)] backdrop-blur-xl">
+      <div className="z-20 rounded-xl border border-white/8 bg-[rgba(38,38,38,0.72)] p-2 shadow-[0_6px_18px_rgba(0,0,0,0.22)] backdrop-blur-xl">
         <div className="flex flex-col gap-1.5 lg:flex-row lg:items-center">
           <div className="relative w-full lg:w-[300px] xl:w-[340px]">
             <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--ast-bone)]/55">
@@ -178,10 +180,16 @@ export default function LabsMarketplace({
         <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
         {filteredLabs.map((lab) => {
           const priceSummary = formatPriceSummary(lab.prices);
+          const palette = getLabPalette(lab.id, lab.backgroundImageUrl);
           return (
             <article
               key={lab.id}
-              className="relative rounded-2xl border border-[var(--ast-sky)]/25 bg-[linear-gradient(180deg,rgba(10,86,198,0.2),rgba(1,25,99,0.28))] p-6 shadow-[0_0_0_1px_rgba(185,214,254,0.08)]"
+              className="relative rounded-2xl border p-6 transition duration-300 hover:-translate-y-1"
+              style={{
+                background: palette.cardBackground,
+                borderColor: palette.borderColor,
+                boxShadow: palette.outlineShadow,
+              }}
             >
               <div className="mb-3 flex flex-wrap gap-1">
                 {lab.hasAccess ? (
@@ -196,7 +204,12 @@ export default function LabsMarketplace({
                 {lab.labels.map((label) => (
                   <span
                     key={`${lab.id}-${label}`}
-                    className="rounded-full border border-[var(--ast-sky)]/40 bg-[var(--ast-cobalt)]/35 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--ast-sky)]"
+                    className="rounded-full border px-2 py-1 text-[10px] font-semibold uppercase tracking-wide"
+                    style={{
+                      borderColor: palette.borderColor,
+                      background: palette.chipBackground,
+                      color: palette.chipTextColor,
+                    }}
                   >
                     {label}
                   </span>
@@ -208,7 +221,9 @@ export default function LabsMarketplace({
                 {lab.description ?? "Sin descripción"}
               </p>
 
-              <p className="mt-4 text-sm font-semibold text-[var(--ast-sky)]">{priceSummary}</p>
+              <p className="mt-4 text-sm font-semibold" style={{ color: palette.accentColor }}>
+                {priceSummary}
+              </p>
 
               <div className="mt-5 space-y-2">
                 {lab.hasAccess ? (
