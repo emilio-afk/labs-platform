@@ -5,6 +5,10 @@ import { useState } from "react";
 type PurchasePlaceholderProps = {
   labId: string;
   labTitle: string;
+  prices: Array<{
+    currency: "USD" | "MXN";
+    amountCents: number;
+  }>;
 };
 
 type CheckoutResponse = {
@@ -15,11 +19,18 @@ type CheckoutResponse = {
 export default function PurchasePlaceholder({
   labId,
   labTitle,
+  prices,
 }: PurchasePlaceholderProps) {
   const [coupon, setCoupon] = useState("");
-  const [currency, setCurrency] = useState<"USD" | "MXN">("USD");
+  const defaultCurrency: "USD" | "MXN" = prices.some((p) => p.currency === "USD")
+    ? "USD"
+    : prices.some((p) => p.currency === "MXN")
+      ? "MXN"
+      : "USD";
+  const [currency, setCurrency] = useState<"USD" | "MXN">(defaultCurrency);
   const [isLoading, setIsLoading] = useState(false);
   const [message, setMessage] = useState("");
+  const selectedPrice = prices.find((price) => price.currency === currency) ?? null;
 
   const startCheckout = async () => {
     setIsLoading(true);
@@ -62,8 +73,12 @@ export default function PurchasePlaceholder({
           onChange={(e) => setCurrency(e.target.value as "USD" | "MXN")}
           className="rounded-lg border border-[var(--ast-sky)]/25 bg-[var(--ast-indigo)]/35 px-3 py-2 text-xs"
         >
-          <option value="USD">USD</option>
-          <option value="MXN">MXN</option>
+          <option value="USD" disabled={!prices.some((price) => price.currency === "USD")}>
+            USD
+          </option>
+          <option value="MXN" disabled={!prices.some((price) => price.currency === "MXN")}>
+            MXN
+          </option>
         </select>
         <input
           type="text"
@@ -76,15 +91,29 @@ export default function PurchasePlaceholder({
 
       <button
         type="button"
-        disabled={isLoading}
+        disabled={isLoading || !selectedPrice}
         onClick={() => void startCheckout()}
         className="w-full rounded-lg bg-[var(--ast-mint)] text-[var(--ast-black)] py-2 text-sm font-bold hover:bg-[var(--ast-forest)] transition disabled:opacity-70"
       >
-        {isLoading ? "Redirigiendo a pago..." : "Pagar ahora"}
+        {isLoading
+          ? "Redirigiendo a pago..."
+          : selectedPrice
+            ? `Pagar ahora (${formatMoney(selectedPrice.amountCents, selectedPrice.currency)})`
+            : "Precio no disponible"}
       </button>
       <p className="text-[11px] text-[var(--ast-bone)]/70">
-        {message || `Lab bloqueado: ${labTitle}`}
+        {message ||
+          (selectedPrice
+            ? `Lab bloqueado: ${labTitle}`
+            : `Lab bloqueado: ${labTitle} (sin precio configurado)`)}
       </p>
     </div>
   );
+}
+
+function formatMoney(amountCents: number, currency: "USD" | "MXN"): string {
+  return new Intl.NumberFormat("es-MX", {
+    style: "currency",
+    currency,
+  }).format(amountCents / 100);
 }

@@ -11,6 +11,13 @@ type LabCard = {
   description: string | null;
 };
 
+type LabPrice = {
+  lab_id: string;
+  currency: "USD" | "MXN";
+  amount_cents: number;
+  is_active: boolean;
+};
+
 type SiteSettings = {
   hero_title: string | null;
   hero_subtitle: string | null;
@@ -20,7 +27,12 @@ const DEFAULT_HERO_TITLE = "Aprende, practica y ejecuta en días.";
 const DEFAULT_HERO_SUBTITLE =
   "Explora rutas prácticas y desbloquea cada lab con tu acceso.";
 
-export default async function Home() {
+export default async function Home({
+  searchParams,
+}: {
+  searchParams: Promise<{ payment?: string; lab?: string }>;
+}) {
+  const query = await searchParams;
   const supabase = await createClient();
   const adminSupabase = createAdminClient();
   const showcaseClient = adminSupabase ?? supabase;
@@ -42,7 +54,23 @@ export default async function Home() {
     .from("labs")
     .select("id, title, description")
     .order("created_at", { ascending: false })) as { data: LabCard[] | null };
+  const { data: activePriceRows } = (await showcaseClient
+    .from("lab_prices")
+    .select("lab_id, currency, amount_cents, is_active")
+    .eq("is_active", true)) as { data: LabPrice[] | null };
   const catalogLabs = showcaseLabs ?? [];
+  const pricesByLab = new Map<
+    string,
+    Array<{ currency: "USD" | "MXN"; amountCents: number }>
+  >();
+  for (const row of activePriceRows ?? []) {
+    const list = pricesByLab.get(row.lab_id) ?? [];
+    list.push({
+      currency: row.currency,
+      amountCents: row.amount_cents,
+    });
+    pricesByLab.set(row.lab_id, list);
+  }
 
   if (!user) {
     labs = catalogLabs;
@@ -70,6 +98,11 @@ export default async function Home() {
 
   const heroTitle = settings?.hero_title?.trim() || DEFAULT_HERO_TITLE;
   const heroSubtitle = settings?.hero_subtitle?.trim() || DEFAULT_HERO_SUBTITLE;
+  const paymentCancelled = query.payment === "cancelled";
+  const cancelledLabTitle =
+    paymentCancelled && query.lab
+      ? catalogLabs.find((lab) => lab.id === query.lab)?.title
+      : null;
 
   return (
     <div className="relative min-h-screen bg-[var(--ast-black)] text-[var(--ast-white)] selection:bg-[var(--ast-mint)]/35 overflow-hidden">
@@ -139,6 +172,12 @@ export default async function Home() {
       </header>
 
       <main className="relative max-w-7xl mx-auto px-6 pb-24">
+        {paymentCancelled && (
+          <div className="mb-4 rounded-lg border border-[var(--ast-coral)]/50 bg-[var(--ast-rust)]/30 px-4 py-3 text-sm text-[var(--ast-bone)]">
+            Pago cancelado. Tu acceso sigue bloqueado
+            {cancelledLabTitle ? ` para "${cancelledLabTitle}"` : ""}.
+          </div>
+        )}
         {user ? (
           <div className="space-y-6">
             {!isAdmin && (
@@ -209,7 +248,11 @@ export default async function Home() {
                           Ver preview del Día 1 →
                         </Link>
                       </div>
-                      <PurchasePlaceholder labId={lab.id} labTitle={lab.title} />
+                      <PurchasePlaceholder
+                        labId={lab.id}
+                        labTitle={lab.title}
+                        prices={pricesByLab.get(lab.id) ?? []}
+                      />
                     </div>
                   );
                 })}

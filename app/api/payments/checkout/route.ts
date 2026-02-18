@@ -178,7 +178,7 @@ export async function POST(request: Request) {
     discountCents,
     couponCode: appliedCoupon?.code ?? null,
     successUrl: `${appUrl}/labs/${labId}?payment=success`,
-    cancelUrl: `${appUrl}/labs/${labId}?payment=cancelled`,
+    cancelUrl: `${appUrl}/?payment=cancelled&lab=${labId}`,
   });
 
   if (stripeSessionRes.error) {
