@@ -144,7 +144,7 @@ export default async function Home() {
             {!isAdmin && (
               <div className="rounded-xl border border-[var(--ast-sky)]/30 bg-[var(--ast-indigo)]/25 px-4 py-3 text-sm text-[var(--ast-bone)]/85">
                 Tienes acceso completo a los labs marcados como activos. Los demás
-                aparecen bloqueados con opción de pago (placeholder).
+                aparecen bloqueados con opción de pago.
               </div>
             )}
             {labs.length === 0 ? (
@@ -209,7 +209,7 @@ export default async function Home() {
                           Ver preview del Día 1 →
                         </Link>
                       </div>
-                      <PurchasePlaceholder labTitle={lab.title} />
+                      <PurchasePlaceholder labId={lab.id} labTitle={lab.title} />
                     </div>
                   );
                 })}

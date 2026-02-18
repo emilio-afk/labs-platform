@@ -135,7 +135,7 @@ export default async function LabDetails({
         </div>
       </div>
 
-      <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-8 p-8">
+      <div className="max-w-7xl mx-auto p-6 md:p-8">
         <LabWorkspace
           labId={id}
           days={workspaceDays as WorkspaceDay[]}

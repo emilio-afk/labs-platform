@@ -261,8 +261,8 @@ export default function LabContent({
   };
 
   return (
-    <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-      <div className="xl:col-span-2 space-y-6">
+    <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
+      <div className="xl:col-span-3 space-y-6">
         {primaryYouTubeVideo?.videoId && (
           <VideoPlayer
             videoId={primaryYouTubeVideo.videoId}
@@ -298,9 +298,9 @@ export default function LabContent({
             </p>
           )}
 
-          <div className="space-y-5">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {mediaAndContentBlocks.length === 0 && (
-              <p className="text-gray-500">
+              <p className="text-gray-500 lg:col-span-2">
                 Este dia no tiene bloques de contenido todavia.
               </p>
             )}
@@ -310,7 +310,7 @@ export default function LabContent({
                 return (
                   <div
                     key={block.id}
-                    className="text-gray-300 whitespace-pre-wrap leading-relaxed"
+                    className="lg:col-span-2 rounded-lg border border-gray-700 bg-black/30 p-4 text-gray-300 whitespace-pre-wrap leading-relaxed"
                   >
                     {block.text}
                   </div>
@@ -319,7 +319,10 @@ export default function LabContent({
 
               if (block.type === "image") {
                 return (
-                  <div key={block.id} className="space-y-2">
+                  <div
+                    key={block.id}
+                    className="rounded-lg border border-gray-700 bg-black/30 p-3 space-y-2"
+                  >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       src={block.url}
@@ -336,7 +339,10 @@ export default function LabContent({
 
               if (block.type === "audio") {
                 return (
-                  <div key={block.id} className="space-y-2">
+                  <div
+                    key={block.id}
+                    className="rounded-lg border border-gray-700 bg-black/30 p-3 space-y-2"
+                  >
                     <audio controls className="w-full" src={block.url} />
                     {block.caption && (
                       <p className="text-sm text-gray-400">{block.caption}</p>
@@ -348,7 +354,10 @@ export default function LabContent({
               if (block.type === "video") {
                 const embeddedVideoId = extractYouTubeVideoId(block.url);
                 return (
-                  <div key={block.id} className="space-y-2">
+                  <div
+                    key={block.id}
+                    className="rounded-lg border border-gray-700 bg-black/30 p-3 space-y-2"
+                  >
                     {embeddedVideoId ? (
                       <iframe
                         title={block.caption || `Video ${index + 1}`}
