@@ -9,11 +9,13 @@ type Currency = "USD" | "MXN";
 
 export type MarketplaceLab = {
   id: string;
+  slug?: string | null;
   title: string;
   description: string | null;
   labels: string[];
   createdAt: string | null;
   backgroundImageUrl?: string | null;
+  accentColor?: string | null;
   hasAccess: boolean;
   prices: Array<{
     currency: Currency;
@@ -180,7 +182,8 @@ export default function LabsMarketplace({
         <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
         {filteredLabs.map((lab) => {
           const priceSummary = formatPriceSummary(lab.prices);
-          const palette = getLabPalette(lab.id, lab.backgroundImageUrl);
+          const palette = getLabPalette(lab.id, lab.backgroundImageUrl, lab.accentColor);
+          const labHref = `/labs/${lab.slug ?? lab.id}`;
           return (
             <article
               key={lab.id}
@@ -217,7 +220,7 @@ export default function LabsMarketplace({
               </div>
 
               <h3 className="text-3xl font-bold text-[var(--ast-bone)]">{lab.title}</h3>
-              <p className="mt-3 min-h-[52px] text-sm leading-relaxed text-[var(--ast-bone)]/75">
+              <p className="mt-3 h-[84px] overflow-hidden text-sm leading-relaxed text-[var(--ast-bone)]/75 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:4]">
                 {lab.description ?? "Sin descripción"}
               </p>
 
@@ -228,7 +231,7 @@ export default function LabsMarketplace({
               <div className="mt-5 space-y-2">
                 {lab.hasAccess ? (
                   <Link
-                    href={`/labs/${lab.id}`}
+                    href={labHref}
                     className="inline-flex w-full items-center justify-center rounded-lg bg-[var(--ast-mint)] px-4 py-2 text-sm font-bold text-[var(--ast-black)] transition hover:bg-[var(--ast-forest)]"
                   >
                     Entrar
@@ -237,7 +240,7 @@ export default function LabsMarketplace({
                   <>
                     <div className="flex items-center gap-3 text-xs">
                       <Link
-                        href={`/labs/${lab.id}?day=1`}
+                        href={`${labHref}?day=1`}
                         className="text-[var(--ast-sky)] hover:text-[var(--ast-mint)]"
                       >
                         Ver Día 1

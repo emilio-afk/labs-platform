@@ -12,11 +12,13 @@ import { resolveLabCardImage } from "@/utils/labCardImages";
 
 type LabCard = {
   id: string;
+  slug?: string | null;
   title: string;
   description: string | null;
   labels?: string[] | null;
   created_at: string | null;
   cover_image_url?: string | null;
+  accent_color?: string | null;
   image_url?: string | null;
   background_image_url?: string | null;
 };
@@ -108,11 +110,16 @@ export default async function Home({
 
   const marketplaceLabs: MarketplaceLab[] = catalogLabs.map((lab) => ({
     id: lab.id,
+    slug: typeof lab.slug === "string" && lab.slug.trim() ? lab.slug.trim() : null,
     title: lab.title,
     description: lab.description,
     labels: normalizeLabLabels(lab.labels),
     createdAt: lab.created_at,
     backgroundImageUrl: resolveLabCardImage(lab),
+    accentColor:
+      typeof lab.accent_color === "string" && lab.accent_color.trim()
+        ? lab.accent_color.trim()
+        : null,
     hasAccess: isAdmin || (Boolean(user) && accessibleLabIds.has(lab.id)),
     prices: pricesByLab.get(lab.id) ?? [],
   }));
@@ -178,9 +185,6 @@ export default async function Home({
 
       <header className="relative mx-auto grid max-w-7xl gap-7 px-6 pb-14 pt-6 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] md:items-center">
         <div>
-          <div className="mb-3 inline-flex rounded-full border border-[var(--ast-sky)]/40 bg-[var(--ast-cobalt)]/28 px-4 py-1 text-[11px] uppercase tracking-[0.15em] text-[var(--ast-sky)]/90">
-            Escaparate de Labs
-          </div>
           <h1 className="mb-4 max-w-4xl bg-gradient-to-r from-[var(--ast-sky)] via-[var(--ast-white)] to-[var(--ast-mint)] bg-clip-text text-5xl font-black leading-[0.95] tracking-tight text-transparent md:text-7xl">
             {heroTitle}
           </h1>
@@ -200,17 +204,6 @@ export default async function Home({
             >
               Explorar catálogo
             </a>
-          </div>
-          <div className="mt-4 flex flex-wrap gap-2">
-            <span className="rounded-full border border-[var(--ast-sky)]/35 bg-[var(--ast-cobalt)]/20 px-3 py-1 text-xs text-[var(--ast-bone)]/85">
-              Día 1 gratis
-            </span>
-            <span className="rounded-full border border-[var(--ast-sky)]/30 bg-black/20 px-3 py-1 text-xs text-[var(--ast-bone)]/75">
-              {totalLabs} labs activos
-            </span>
-            <span className="rounded-full border border-[var(--ast-sky)]/30 bg-black/20 px-3 py-1 text-xs text-[var(--ast-bone)]/75">
-              {topCount} top curados
-            </span>
           </div>
           {!user && (
             <p className="mt-3 text-xs text-[var(--ast-bone)]/60">
@@ -361,7 +354,12 @@ export default async function Home({
               <div className="grid gap-4 lg:grid-cols-3">
                 {featuredLabs.map((lab, index) => {
                   const priceSummary = formatPriceSummary(lab.prices);
-                  const palette = getLabPalette(lab.id, lab.backgroundImageUrl);
+                  const palette = getLabPalette(
+                    lab.id,
+                    lab.backgroundImageUrl,
+                    lab.accentColor,
+                  );
+                  const labHref = `/labs/${lab.slug ?? lab.id}`;
                   return (
                     <article
                       key={lab.id}
@@ -399,7 +397,7 @@ export default async function Home({
                         <h3 className="text-[2rem] font-black leading-tight text-[var(--ast-bone)]">
                           {lab.title}
                         </h3>
-                        <p className="mt-3 min-h-[48px] text-sm leading-relaxed text-[var(--ast-bone)]/78">
+                        <p className="mt-3 h-[86px] overflow-hidden text-sm leading-relaxed text-[var(--ast-bone)]/78 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:4]">
                           {lab.description ?? "Sin descripción"}
                         </p>
                         <p className="mt-4 text-sm font-bold" style={{ color: palette.accentColor }}>
@@ -409,7 +407,7 @@ export default async function Home({
                         <div className="mt-5 space-y-2">
                           {lab.hasAccess ? (
                             <Link
-                              href={`/labs/${lab.id}`}
+                              href={labHref}
                               className="inline-flex w-full items-center justify-center rounded-lg bg-[var(--ast-mint)] px-4 py-2 text-sm font-bold text-[var(--ast-black)] transition hover:bg-[var(--ast-forest)]"
                             >
                               Entrar al lab
@@ -418,7 +416,7 @@ export default async function Home({
                             <>
                               <div className="flex items-center gap-3 text-xs">
                                 <Link
-                                  href={`/labs/${lab.id}?day=1`}
+                                  href={`${labHref}?day=1`}
                                   className="text-[var(--ast-sky)] hover:text-[var(--ast-mint)]"
                                 >
                                   Ver Día 1

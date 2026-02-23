@@ -3,26 +3,27 @@
 export default function ProgressBar({
   completed,
   total,
+  label = "Progreso del lab",
 }: {
   completed: number;
   total: number;
+  label?: string;
 }) {
-  // Calculamos el porcentaje. Si total es 0, evitamos error de división por cero.
   const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
 
   return (
-    <div className="w-full mb-8">
-      <div className="flex justify-between items-end mb-2">
-        <span className="text-xs font-bold text-[var(--ast-mint)] uppercase tracking-widest">
-          Tu Progreso
+    <div className="w-full">
+      <div className="mb-1 flex items-end justify-between gap-3">
+        <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#cfe0fa]">
+          {label}
         </span>
-        <span className="text-2xl font-black text-white">{percentage}%</span>
+        <span className="text-lg font-black text-white">{percentage}%</span>
       </div>
-      <div className="h-2 w-full bg-gray-800 rounded-full overflow-hidden border border-white/5">
+      <div className="h-1.5 w-full overflow-hidden rounded-full border border-white/5 bg-gray-800">
         <div
           className="h-full bg-gradient-to-r from-[var(--ast-emerald)] to-[var(--ast-mint)] transition-all duration-700 ease-out"
           style={{ width: `${percentage}%` }}
-        ></div>
+        />
       </div>
     </div>
   );

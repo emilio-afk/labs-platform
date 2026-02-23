@@ -15,54 +15,74 @@ type Comment = {
 export default function Forum({
   labId,
   dayNumber,
+  discussionPrompt,
+  onActivityChange,
 }: {
   labId: string;
   dayNumber: number;
+  discussionPrompt?: string;
+  onActivityChange?: (activity: { commentCount: number; hasUserComment: boolean }) => void;
 }) {
   const [comments, setComments] = useState<Comment[]>([]);
   const [newComment, setNewComment] = useState("");
   const [user, setUser] = useState<User | null>(null);
+  const [authResolved, setAuthResolved] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const supabase = useMemo(() => createClient(), []);
 
   useEffect(() => {
     let active = true;
+    setAuthResolved(false);
 
     const loadForumData = async () => {
-      const [{ data: authData }, { data: commentsData }] = await Promise.all([
-        supabase.auth.getUser(),
-        supabase
-          .from("comments")
-          .select("id, user_id, user_email, content, created_at")
-          .eq("lab_id", labId)
-          .eq("day_number", dayNumber)
-          .order("created_at", { ascending: false }),
-      ]);
+      try {
+        const [{ data: authData }, { data: commentsData }] = await Promise.all([
+          supabase.auth.getUser(),
+          supabase
+            .from("comments")
+            .select("id, user_id, user_email, content, created_at")
+            .eq("lab_id", labId)
+            .eq("day_number", dayNumber)
+            .order("created_at", { ascending: false }),
+        ]);
 
-      if (!active) return;
-      setUser(authData.user);
-      setComments((commentsData as Comment[] | null) ?? []);
-
-      if (authData.user) {
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("role")
-          .eq("id", authData.user.id)
-          .maybeSingle();
         if (!active) return;
-        setIsAdmin(profile?.role === "admin");
-      } else {
-        setIsAdmin(false);
+        setUser(authData.user);
+        const nextComments = (commentsData as Comment[] | null) ?? [];
+        setComments(nextComments);
+        const hasUserComment = Boolean(
+          authData.user && nextComments.some((comment) => comment.user_id === authData.user.id),
+        );
+        onActivityChange?.({
+          commentCount: nextComments.length,
+          hasUserComment,
+        });
+
+        if (authData.user) {
+          const { data: profile } = await supabase
+            .from("profiles")
+            .select("role")
+            .eq("id", authData.user.id)
+            .maybeSingle();
+          if (!active) return;
+          setIsAdmin(profile?.role === "admin");
+        } else {
+          setIsAdmin(false);
+        }
+      } finally {
+        if (active) {
+          setAuthResolved(true);
+        }
       }
     };
 
-    loadForumData();
+    void loadForumData();
 
     return () => {
       active = false;
     };
-  }, [dayNumber, labId, refreshKey, supabase]);
+  }, [dayNumber, labId, onActivityChange, refreshKey, supabase]);
 
   const postComment = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -92,15 +112,28 @@ export default function Forum({
   };
 
   return (
-    <div className="mt-12 border-t border-gray-800 pt-8">
-      <h2 className="text-2xl font-bold mb-6 text-green-400">
-        Foro de Discusión
-      </h2>
-
-      {user ? (
+    <div className="mt-4">
+      {!authResolved ? (
+        <div className="mb-8 rounded-lg border border-gray-700 bg-black/30 px-4 py-3 text-sm text-gray-400">
+          Cargando foro...
+        </div>
+      ) : user ? (
         <form onSubmit={postComment} className="mb-8">
+          <div className="mb-3 rounded-lg border border-[var(--ast-sky)]/35 bg-[var(--ast-indigo)]/26 p-3">
+            <p className="text-xs uppercase tracking-wider text-[var(--ast-sky)]/80">
+              Prompt de discusión
+            </p>
+            <p className="mt-1 text-sm text-gray-100">
+              {discussionPrompt || "Comparte qué aplicaste hoy y qué mejorarás mañana."}
+            </p>
+            <ul className="mt-2 space-y-1 text-xs text-gray-400">
+              <li>1. Contexto breve del caso real.</li>
+              <li>2. Prompt o enfoque que usaste.</li>
+              <li>3. Resultado y siguiente mejora.</li>
+            </ul>
+          </div>
           <textarea
-            className="w-full p-4 rounded-lg bg-gray-900 border border-gray-700 text-white focus:border-green-500 outline-none"
+            className="w-full p-4 rounded-lg bg-black/30 border border-gray-700 text-white focus:border-green-500 outline-none"
             placeholder="Comparte tu resultado del reto..."
             value={newComment}
             onChange={(e) => setNewComment(e.target.value)}

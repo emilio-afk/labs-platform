@@ -7,19 +7,36 @@ import {
   createQuizQuestion,
   parseDayBlocks,
   serializeDayBlocks,
+  getDefaultDayBlockGroup,
   type DayBlock,
   type DayChecklistItem,
   type DayQuizQuestion,
+  type DayBlockGroup,
+  type DayBlockRole,
   type DayBlockType,
 } from "@/utils/dayBlocks";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  hasRichTextContent,
+  normalizeRichTextInput,
+} from "@/utils/richText";
+import {
+  isMissingColumnError,
+  normalizeAccentColor,
+  normalizeLabSlug,
+  normalizeOptionalUrl,
+} from "@/utils/labMeta";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import RichTextEditor from "@/components/RichTextEditor";
 
 export type AdminLab = {
   id: string;
   title: string;
   description: string | null;
   labels?: string[] | null;
+  slug?: string | null;
+  cover_image_url?: string | null;
+  accent_color?: string | null;
   created_at: string;
 };
 
@@ -109,6 +126,24 @@ type AdminTab =
   | "users"
   | "commerce";
 
+type DayBlocksViewPreset = "all" | DayBlockGroup;
+const MAX_DAY_BLOCK_HISTORY = 120;
+
+type LabMetaDraft = {
+  title: string;
+  description: string;
+  slug: string;
+  coverImageUrl: string;
+  accentColor: string;
+};
+
+type LabQuickMetrics = {
+  dayCount: number;
+  commentCount: number;
+  activeEntitlementCount: number;
+  progressCount: number;
+};
+
 export default function AdminPanel({
   initialLabs,
   initialHeroTitle,
@@ -122,9 +157,17 @@ export default function AdminPanel({
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [createLabSlug, setCreateLabSlug] = useState("");
+  const [createLabCoverUrl, setCreateLabCoverUrl] = useState("");
+  const [createLabAccentColor, setCreateLabAccentColor] = useState("#0A56C6");
   const [labelsInput, setLabelsInput] = useState("");
   const [labLabelDrafts, setLabLabelDrafts] = useState<Record<string, string>>({});
   const [savingLabelsLabId, setSavingLabelsLabId] = useState<string | null>(null);
+  const [editingLabId, setEditingLabId] = useState<string | null>(null);
+  const [labMetaDrafts, setLabMetaDrafts] = useState<Record<string, LabMetaDraft>>({});
+  const [savingLabMetaId, setSavingLabMetaId] = useState<string | null>(null);
+  const [duplicatingLabId, setDuplicatingLabId] = useState<string | null>(null);
+  const [labMetrics, setLabMetrics] = useState<Record<string, LabQuickMetrics>>({});
   const [msg, setMsg] = useState("");
 
   const [selectedLab, setSelectedLab] = useState<string | null>(
@@ -139,6 +182,12 @@ export default function AdminPanel({
   const [daysRefreshTick, setDaysRefreshTick] = useState(0);
   const [editingDayId, setEditingDayId] = useState<string | null>(null);
   const [uploadingBlockId, setUploadingBlockId] = useState<string | null>(null);
+  const [dayBlocksViewPreset, setDayBlocksViewPreset] =
+    useState<DayBlocksViewPreset>("all");
+  const [blockUndoPast, setBlockUndoPast] = useState<DayBlock[][]>([]);
+  const [blockUndoFuture, setBlockUndoFuture] = useState<DayBlock[][]>([]);
+  const blocksRef = useRef<DayBlock[]>(blocks);
+  const isHistoryNavigationRef = useRef(false);
 
   const [commentDayFilter, setCommentDayFilter] = useState<string>("");
   const [comments, setComments] = useState<AdminComment[]>([]);
@@ -182,6 +231,113 @@ export default function AdminPanel({
     () => managedUsers.find((managedUser) => managedUser.id === selectedManagedUserId) ?? null,
     [managedUsers, selectedManagedUserId],
   );
+  const resourceBlockCount = useMemo(
+    () =>
+      blocks.filter(
+        (block) => (block.group ?? getDefaultDayBlockGroup(block.type)) === "resource",
+      ).length,
+    [blocks],
+  );
+  const challengeBlockCount = useMemo(
+    () =>
+      blocks.filter(
+        (block) => (block.group ?? getDefaultDayBlockGroup(block.type)) === "challenge",
+      ).length,
+    [blocks],
+  );
+  const canUndoBlocks = blockUndoPast.length > 0;
+  const canRedoBlocks = blockUndoFuture.length > 0;
+
+  useEffect(() => {
+    blocksRef.current = blocks;
+  }, [blocks]);
+
+  const clearBlockHistory = useCallback(() => {
+    setBlockUndoPast([]);
+    setBlockUndoFuture([]);
+  }, []);
+
+  const commitBlocks = useCallback(
+    (
+      updater: DayBlock[] | ((prev: DayBlock[]) => DayBlock[]),
+      options?: { skipHistory?: boolean },
+    ) => {
+      setBlocks((prev) => {
+        const next =
+          typeof updater === "function"
+            ? (updater as (prev: DayBlock[]) => DayBlock[])(prev)
+            : updater;
+        const safeNext = cloneDayBlocks(next);
+
+        if (options?.skipHistory || isHistoryNavigationRef.current) {
+          return safeNext;
+        }
+
+        if (getBlocksSignature(prev) === getBlocksSignature(safeNext)) {
+          return safeNext;
+        }
+
+        const prevSnapshot = cloneDayBlocks(prev);
+        setBlockUndoPast((past) => {
+          const nextPast = [...past, prevSnapshot];
+          if (nextPast.length > MAX_DAY_BLOCK_HISTORY) {
+            return nextPast.slice(nextPast.length - MAX_DAY_BLOCK_HISTORY);
+          }
+          return nextPast;
+        });
+        setBlockUndoFuture([]);
+
+        return safeNext;
+      });
+    },
+    [],
+  );
+
+  const undoBlocks = useCallback(() => {
+    setBlockUndoPast((past) => {
+      if (past.length === 0) return past;
+
+      const previousSnapshot = past[past.length - 1];
+      const nextPast = past.slice(0, -1);
+      setBlockUndoFuture((future) => {
+        const currentSnapshot = cloneDayBlocks(blocksRef.current);
+        const nextFuture = [currentSnapshot, ...future];
+        return nextFuture.slice(0, MAX_DAY_BLOCK_HISTORY);
+      });
+
+      isHistoryNavigationRef.current = true;
+      setBlocks(cloneDayBlocks(previousSnapshot));
+      queueMicrotask(() => {
+        isHistoryNavigationRef.current = false;
+      });
+
+      return nextPast;
+    });
+  }, []);
+
+  const redoBlocks = useCallback(() => {
+    setBlockUndoFuture((future) => {
+      if (future.length === 0) return future;
+
+      const [nextSnapshot, ...nextFuture] = future;
+      setBlockUndoPast((past) => {
+        const currentSnapshot = cloneDayBlocks(blocksRef.current);
+        const nextPast = [...past, currentSnapshot];
+        if (nextPast.length > MAX_DAY_BLOCK_HISTORY) {
+          return nextPast.slice(nextPast.length - MAX_DAY_BLOCK_HISTORY);
+        }
+        return nextPast;
+      });
+
+      isHistoryNavigationRef.current = true;
+      setBlocks(cloneDayBlocks(nextSnapshot));
+      queueMicrotask(() => {
+        isHistoryNavigationRef.current = false;
+      });
+
+      return nextFuture;
+    });
+  }, []);
 
   const fetchLabs = useCallback(async () => {
     const { data, error } = await supabase
@@ -431,44 +587,139 @@ export default function AdminPanel({
     };
   }, [activeTab, commercialRefreshTick, selectedLab]);
 
+  useEffect(() => {
+    let active = true;
+
+    const loadLabMetrics = async () => {
+      if (activeTab !== "labs") return;
+      const response = await fetch("/api/admin/labs/metrics");
+      const payload = (await response.json()) as {
+        metrics?: Record<string, LabQuickMetrics>;
+        error?: string;
+      };
+
+      if (!active) return;
+      if (!response.ok) {
+        setMsg(payload.error ?? "No se pudieron cargar métricas rápidas");
+        return;
+      }
+
+      setLabMetrics(payload.metrics ?? {});
+    };
+
+    void loadLabMetrics();
+    return () => {
+      active = false;
+    };
+  }, [activeTab, labs.length]);
+
+  useEffect(() => {
+    if (activeTab !== "days" || !selectedLab) return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.altKey) return;
+      if (isEditableTarget(event.target)) return;
+
+      const key = event.key.toLowerCase();
+      if (key === "z") {
+        event.preventDefault();
+        if (event.shiftKey) {
+          redoBlocks();
+        } else {
+          undoBlocks();
+        }
+        return;
+      }
+
+      if (key === "y") {
+        event.preventDefault();
+        redoBlocks();
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [activeTab, selectedLab, redoBlocks, undoBlocks]);
+
   const createLab = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setMsg("Guardando Lab...");
 
+    const nextTitle = title.trim();
+    const nextDescription = description.trim();
+    const normalizedSlug = normalizeLabSlug(createLabSlug || nextTitle);
+    const normalizedCoverUrl = normalizeOptionalUrl(createLabCoverUrl);
+    const normalizedAccent = normalizeAccentColor(createLabAccentColor);
     const normalizedLabels = parseLabelsInput(labelsInput);
+    const warnings: string[] = [];
 
-    const { error: insertError } = await supabase.from("labs").insert([
-      {
-        title,
-        description,
-        labels: normalizedLabels,
-      },
-    ]);
-    let finalError = insertError;
+    const { data: createdLab, error: insertError } = await supabase
+      .from("labs")
+      .insert([
+        {
+          title: nextTitle,
+          description: nextDescription || null,
+        },
+      ])
+      .select("id")
+      .single();
 
-    if (finalError && isMissingLabelsColumnError(finalError.message)) {
-      const fallback = await supabase.from("labs").insert([{ title, description }]);
-      finalError = fallback.error;
-      if (!finalError) {
-        setMsg(
-          "Lab creado. Para etiquetas persistentes, ejecuta docs/supabase-lab-labels.sql",
-        );
-        setTitle("");
-        setDescription("");
-        setLabelsInput("");
-        await fetchLabs();
-        return;
-      }
-    }
-
-    if (finalError) {
-      setMsg("Error: " + finalError.message);
+    if (insertError || !createdLab?.id) {
+      setMsg("Error: " + (insertError?.message ?? "No se pudo crear el lab"));
       return;
     }
 
-    setMsg("Lab creado");
+    if (normalizedLabels.length > 0) {
+      const { error } = await supabase
+        .from("labs")
+        .update({ labels: normalizedLabels })
+        .eq("id", createdLab.id);
+
+      if (error) {
+        if (isMissingLabelsColumnError(error.message)) {
+          warnings.push("faltan etiquetas (ejecuta docs/supabase-lab-labels.sql)");
+        } else {
+          warnings.push(`etiquetas: ${error.message}`);
+        }
+      }
+    }
+
+    if (normalizedSlug || normalizedCoverUrl || normalizedAccent) {
+      const appearancePayload: {
+        slug?: string;
+        cover_image_url?: string;
+        accent_color?: string;
+      } = {};
+      if (normalizedSlug) appearancePayload.slug = normalizedSlug;
+      if (normalizedCoverUrl) appearancePayload.cover_image_url = normalizedCoverUrl;
+      if (normalizedAccent) appearancePayload.accent_color = normalizedAccent;
+
+      const { error } = await supabase
+        .from("labs")
+        .update(appearancePayload)
+        .eq("id", createdLab.id);
+
+      if (error) {
+        if (isMissingLabMetaColumnsError(error.message)) {
+          warnings.push("faltan columnas visuales (ejecuta docs/supabase-lab-meta.sql)");
+        } else if (isDuplicateSlugError(error.message)) {
+          warnings.push("slug repetido: ajústalo desde Editar texto");
+        } else {
+          warnings.push(`meta: ${error.message}`);
+        }
+      }
+    }
+
+    setMsg(
+      warnings.length > 0
+        ? `Lab creado con avisos: ${warnings.join(" · ")}`
+        : "Lab creado",
+    );
     setTitle("");
     setDescription("");
+    setCreateLabSlug("");
+    setCreateLabCoverUrl("");
+    setCreateLabAccentColor("#0A56C6");
     setLabelsInput("");
     await fetchLabs();
   };
@@ -498,6 +749,116 @@ export default function AdminPanel({
     );
     setMsg("Etiquetas guardadas");
     setSavingLabelsLabId(null);
+  };
+
+  const startEditLabMeta = (lab: AdminLab) => {
+    setEditingLabId(lab.id);
+    setLabMetaDrafts((prev) => ({
+      ...prev,
+      [lab.id]: {
+        title: lab.title,
+        description: lab.description ?? "",
+        slug: lab.slug ?? "",
+        coverImageUrl: lab.cover_image_url ?? "",
+        accentColor: lab.accent_color ?? "#0A56C6",
+      },
+    }));
+    setMsg("");
+  };
+
+  const cancelEditLabMeta = () => {
+    setEditingLabId(null);
+    setSavingLabMetaId(null);
+  };
+
+  const saveLabMeta = async (labId: string) => {
+    const currentLab = labs.find((lab) => lab.id === labId);
+    if (!currentLab) return;
+
+    const draft = labMetaDrafts[labId] ?? {
+      title: currentLab.title,
+      description: currentLab.description ?? "",
+      slug: currentLab.slug ?? "",
+      coverImageUrl: currentLab.cover_image_url ?? "",
+      accentColor: currentLab.accent_color ?? "#0A56C6",
+    };
+    const nextTitle = draft.title.trim();
+    const nextDescription = draft.description.trim();
+    const nextSlug = normalizeLabSlug(draft.slug || nextTitle);
+    const nextCoverImageUrl = normalizeOptionalUrl(draft.coverImageUrl);
+    const nextAccentColor = normalizeAccentColor(draft.accentColor);
+
+    if (!nextTitle) {
+      setMsg("El título del lab no puede estar vacío.");
+      return;
+    }
+
+    setSavingLabMetaId(labId);
+    setMsg("Guardando cambios del lab...");
+
+    const { error } = await supabase
+      .from("labs")
+      .update({
+        title: nextTitle,
+        description: nextDescription || null,
+        slug: nextSlug || null,
+        cover_image_url: nextCoverImageUrl,
+        accent_color: nextAccentColor,
+      })
+      .eq("id", labId);
+
+    if (error) {
+      if (isMissingLabMetaColumnsError(error.message)) {
+        setMsg("Faltan columnas visuales. Ejecuta docs/supabase-lab-meta.sql");
+      } else if (isDuplicateSlugError(error.message)) {
+        setMsg("Ese slug ya existe. Usa otro valor.");
+      } else {
+        setMsg("Error: " + error.message);
+      }
+      setSavingLabMetaId(null);
+      return;
+    }
+
+    setLabs((prev) =>
+      prev.map((lab) =>
+        lab.id === labId
+          ? {
+              ...lab,
+              title: nextTitle,
+              description: nextDescription || null,
+              slug: nextSlug || null,
+              cover_image_url: nextCoverImageUrl,
+              accent_color: nextAccentColor,
+            }
+          : lab,
+      ),
+    );
+    setMsg("Lab actualizado");
+    setSavingLabMetaId(null);
+    setEditingLabId(null);
+  };
+
+  const duplicateLab = async (labId: string) => {
+    setDuplicatingLabId(labId);
+    setMsg("Duplicando lab...");
+    const response = await fetch(`/api/admin/labs/${labId}/duplicate`, {
+      method: "POST",
+    });
+    const payload = (await response.json()) as {
+      ok?: boolean;
+      error?: string;
+      lab?: AdminLab;
+    };
+    setDuplicatingLabId(null);
+
+    if (!response.ok || !payload.ok || !payload.lab) {
+      setMsg(payload.error ?? "No se pudo duplicar el lab");
+      return;
+    }
+
+    setMsg(`Lab duplicado: ${payload.lab.title}`);
+    await fetchLabs();
+    handleSelectLab(payload.lab.id);
   };
 
   const saveHeroSettings = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -530,10 +891,16 @@ export default function AdminPanel({
 
     const normalizedBlocks = blocks
       .map((block) => {
+        const group: DayBlockGroup = block.group ?? getDefaultDayBlockGroup(block.type);
+        const role: DayBlockRole = normalizeBlockRole(block.role, group);
+
         if (block.type === "text") {
+          const normalizedText = normalizeRichTextInput(block.text ?? "");
           return {
             ...block,
-            text: block.text?.trim() ?? "",
+            group,
+            role,
+            text: normalizedText,
           };
         }
 
@@ -547,6 +914,8 @@ export default function AdminPanel({
 
           return {
             ...block,
+            group,
+            role,
             title: block.title?.trim() ?? "",
             items,
           };
@@ -578,6 +947,8 @@ export default function AdminPanel({
 
           return {
             ...block,
+            group,
+            role,
             title: block.title?.trim() ?? "",
             questions,
           };
@@ -585,30 +956,38 @@ export default function AdminPanel({
 
         return {
           ...block,
+          group,
+          role,
           url: block.url?.trim() ?? "",
           caption: block.caption?.trim() ?? "",
         };
       })
       .filter((block) => {
-        if (block.type === "text") return Boolean(block.text);
+        if (block.type === "text") return hasRichTextContent(block.text ?? "");
         if (block.type === "checklist") return (block.items?.length ?? 0) > 0;
         if (block.type === "quiz") return (block.questions?.length ?? 0) > 0;
         return Boolean(block.url);
       });
 
-    if (normalizedBlocks.length === 0) {
+    const effectiveBlocks = ensurePrimaryResourceBlock(normalizedBlocks);
+
+    if (effectiveBlocks.length === 0) {
       setDayMsg("Agrega al menos un bloque con contenido.");
       return;
     }
 
-    const firstVideoBlock = normalizedBlocks.find(
+    const primaryVideoBlock = effectiveBlocks.find((block) => {
+      const group = block.group ?? getDefaultDayBlockGroup(block.type);
+      return group === "resource" && block.role === "primary" && block.type === "video" && block.url;
+    });
+    const firstVideoBlock = effectiveBlocks.find(
       (block) => block.type === "video" && block.url,
     );
     const payload = {
       day_number: dayNumber,
       title: dayTitle,
-      video_url: firstVideoBlock?.url ?? null,
-      content: serializeDayBlocks(normalizedBlocks),
+      video_url: primaryVideoBlock?.url ?? firstVideoBlock?.url ?? null,
+      content: serializeDayBlocks(effectiveBlocks),
     };
     const { error } = editingDayId
       ? await supabase.from("days").update(payload).eq("id", editingDayId)
@@ -629,7 +1008,8 @@ export default function AdminPanel({
     } else {
       setDayMsg("Dia guardado correctamente");
       setDayTitle("");
-      setBlocks([createBlock("text")]);
+      commitBlocks([createBlock("text")], { skipHistory: true });
+      clearBlockHistory();
       setDayNumber((prev) => prev + 1);
     }
 
@@ -640,7 +1020,9 @@ export default function AdminPanel({
     setEditingDayId(null);
     setDayMsg("");
     setDayTitle("");
-    setBlocks([createBlock("text")]);
+    commitBlocks([createBlock("text")], { skipHistory: true });
+    clearBlockHistory();
+    setDayBlocksViewPreset("all");
     setDayNumber(getNextDayNumber(days));
   };
 
@@ -649,12 +1031,16 @@ export default function AdminPanel({
     setDayNumber(day.day_number);
     setDayTitle(day.title);
     const parsedBlocks = parseDayBlocks(day.content, day.video_url);
-    setBlocks(parsedBlocks.length > 0 ? parsedBlocks : [createBlock("text")]);
+    commitBlocks(parsedBlocks.length > 0 ? parsedBlocks : [createBlock("text")], {
+      skipHistory: true,
+    });
+    clearBlockHistory();
+    setDayBlocksViewPreset("all");
     setDayMsg(`Editando dia ${day.day_number}`);
   };
 
   const addBlock = (type: DayBlockType) => {
-    setBlocks((prev) => [...prev, createBlock(type)]);
+    commitBlocks((prev) => [...prev, createBlock(type)]);
   };
 
   const uploadFileForBlock = async (block: DayBlock, file: File) => {
@@ -693,7 +1079,7 @@ export default function AdminPanel({
   };
 
   const updateBlock = (id: string, patch: Partial<DayBlock>) => {
-    setBlocks((prev) =>
+    commitBlocks((prev) =>
       prev.map((block) => (block.id === id ? { ...block, ...patch } : block)),
     );
   };
@@ -703,7 +1089,7 @@ export default function AdminPanel({
     itemId: string,
     patch: Partial<DayChecklistItem>,
   ) => {
-    setBlocks((prev) =>
+    commitBlocks((prev) =>
       prev.map((block) => {
         if (block.id !== blockId || block.type !== "checklist") return block;
         return {
@@ -717,7 +1103,7 @@ export default function AdminPanel({
   };
 
   const addChecklistItem = (blockId: string) => {
-    setBlocks((prev) =>
+    commitBlocks((prev) =>
       prev.map((block) => {
         if (block.id !== blockId || block.type !== "checklist") return block;
         return {
@@ -729,7 +1115,7 @@ export default function AdminPanel({
   };
 
   const removeChecklistItem = (blockId: string, itemId: string) => {
-    setBlocks((prev) =>
+    commitBlocks((prev) =>
       prev.map((block) => {
         if (block.id !== blockId || block.type !== "checklist") return block;
         const nextItems = (block.items ?? []).filter((item) => item.id !== itemId);
@@ -744,7 +1130,7 @@ export default function AdminPanel({
     questionId: string,
     patch: Partial<DayQuizQuestion>,
   ) => {
-    setBlocks((prev) =>
+    commitBlocks((prev) =>
       prev.map((block) => {
         if (block.id !== blockId || block.type !== "quiz") return block;
         return {
@@ -758,7 +1144,7 @@ export default function AdminPanel({
   };
 
   const addQuizQuestion = (blockId: string) => {
-    setBlocks((prev) =>
+    commitBlocks((prev) =>
       prev.map((block) => {
         if (block.id !== blockId || block.type !== "quiz") return block;
         return {
@@ -770,7 +1156,7 @@ export default function AdminPanel({
   };
 
   const removeQuizQuestion = (blockId: string, questionId: string) => {
-    setBlocks((prev) =>
+    commitBlocks((prev) =>
       prev.map((block) => {
         if (block.id !== blockId || block.type !== "quiz") return block;
         const nextQuestions = (block.questions ?? []).filter(
@@ -783,7 +1169,7 @@ export default function AdminPanel({
   };
 
   const addQuizOption = (blockId: string, questionId: string) => {
-    setBlocks((prev) =>
+    commitBlocks((prev) =>
       prev.map((block) => {
         if (block.id !== blockId || block.type !== "quiz") return block;
         return {
@@ -804,7 +1190,7 @@ export default function AdminPanel({
     optionIndex: number,
     value: string,
   ) => {
-    setBlocks((prev) =>
+    commitBlocks((prev) =>
       prev.map((block) => {
         if (block.id !== blockId || block.type !== "quiz") return block;
         return {
@@ -825,7 +1211,7 @@ export default function AdminPanel({
     questionId: string,
     optionIndex: number,
   ) => {
-    setBlocks((prev) =>
+    commitBlocks((prev) =>
       prev.map((block) => {
         if (block.id !== blockId || block.type !== "quiz") return block;
         return {
@@ -854,14 +1240,14 @@ export default function AdminPanel({
   };
 
   const removeBlock = (id: string) => {
-    setBlocks((prev) => {
+    commitBlocks((prev) => {
       if (prev.length === 1) return prev;
       return prev.filter((block) => block.id !== id);
     });
   };
 
   const moveBlock = (index: number, direction: -1 | 1) => {
-    setBlocks((prev) => {
+    commitBlocks((prev) => {
       const nextIndex = index + direction;
       if (nextIndex < 0 || nextIndex >= prev.length) return prev;
       const next = [...prev];
@@ -903,7 +1289,8 @@ export default function AdminPanel({
     setDays(nextDays);
     setEditingDayId(null);
     setDayTitle("");
-    setBlocks([createBlock("text")]);
+    commitBlocks([createBlock("text")], { skipHistory: true });
+    clearBlockHistory();
     setDayNumber(getNextDayNumber(nextDays));
     setDayMsg(`Dia ${targetDay.day_number} eliminado`);
     setDaysRefreshTick((prev) => prev + 1);
@@ -1054,7 +1441,8 @@ export default function AdminPanel({
     setEditingDayId(null);
     setDayMsg("");
     setDayTitle("");
-    setBlocks([createBlock("text")]);
+    commitBlocks([createBlock("text")], { skipHistory: true });
+    clearBlockHistory();
     setDayNumber(1);
   };
 
@@ -1064,8 +1452,8 @@ export default function AdminPanel({
   };
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white p-8">
-      <div className="max-w-4xl mx-auto space-y-12">
+    <div className="min-h-screen bg-gray-900 text-white p-4 md:p-6 xl:p-8">
+      <div className="mx-auto w-full max-w-[1440px] space-y-10">
         <div className="flex justify-between items-center border-b border-gray-700 pb-4">
           <h1 className="text-3xl font-bold text-green-400">Panel de Admin</h1>
           <div className="space-x-4">
@@ -1160,6 +1548,38 @@ export default function AdminPanel({
                 onChange={(e) => setDescription(e.target.value)}
               />
             </div>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_140px]">
+              <input
+                type="text"
+                placeholder="Slug (opcional, ej. prompt-engineering)"
+                className="p-2 rounded bg-black border border-gray-600 w-full"
+                value={createLabSlug}
+                onChange={(e) => setCreateLabSlug(e.target.value)}
+              />
+              <input
+                type="text"
+                placeholder="URL de portada (opcional)"
+                className="p-2 rounded bg-black border border-gray-600 w-full"
+                value={createLabCoverUrl}
+                onChange={(e) => setCreateLabCoverUrl(e.target.value)}
+              />
+              <div className="flex items-center gap-2 rounded border border-gray-600 bg-black p-2">
+                <input
+                  type="color"
+                  value={normalizeAccentColor(createLabAccentColor) ?? "#0A56C6"}
+                  onChange={(e) => setCreateLabAccentColor(e.target.value)}
+                  className="h-8 w-8 rounded border border-gray-700 bg-transparent p-0"
+                  aria-label="Color de acento"
+                />
+                <input
+                  type="text"
+                  value={createLabAccentColor}
+                  onChange={(e) => setCreateLabAccentColor(e.target.value)}
+                  placeholder="#0A56C6"
+                  className="w-full bg-transparent text-xs text-gray-200 outline-none"
+                />
+              </div>
+            </div>
             <input
               type="text"
               placeholder="Etiquetas (coma): NEW, TOP, AUDIO"
@@ -1180,70 +1600,302 @@ export default function AdminPanel({
             <h3 className="text-sm uppercase tracking-widest text-gray-400 mb-3">
               Labs existentes (eliminación completa)
             </h3>
-            <div className="space-y-2">
-              {labs.map((lab) => (
-                <div
-                  key={lab.id}
-                  className="flex items-center justify-between gap-3 rounded border border-gray-700 bg-black/30 p-3"
-                >
-                  <div className="flex-1">
-                    <p className="text-sm font-semibold text-gray-100">{lab.title}</p>
-                    <p className="text-xs text-gray-500">{lab.description ?? "Sin descripción"}</p>
-                    <div className="mt-2 flex flex-wrap gap-1">
-                      {normalizeLabels(lab.labels).map((label) => (
-                        <span
-                          key={`${lab.id}-${label}`}
-                          className="rounded-full border border-cyan-500/50 bg-cyan-900/30 px-2 py-0.5 text-[10px] font-semibold text-cyan-200"
+            <div className="grid grid-cols-1 gap-2 xl:grid-cols-2">
+              {labs.map((lab) => {
+                const isEditing = editingLabId === lab.id;
+                const metaDraft = labMetaDrafts[lab.id] ?? {
+                  title: lab.title,
+                  description: lab.description ?? "",
+                  slug: lab.slug ?? "",
+                  coverImageUrl: lab.cover_image_url ?? "",
+                  accentColor: lab.accent_color ?? "#0A56C6",
+                };
+                const isSelected = selectedLab === lab.id;
+                const metrics = labMetrics[lab.id];
+                return (
+                  <div
+                    key={lab.id}
+                    className={`rounded border p-2.5 ${
+                      isSelected
+                        ? "border-cyan-500/60 bg-cyan-950/20"
+                        : "border-gray-700 bg-black/30"
+                    }`}
+                  >
+                    <div className="grid grid-cols-1 gap-2 md:grid-cols-[minmax(0,1fr)_auto] md:items-start">
+                      <div className="min-w-0 space-y-1.5">
+                        {isEditing ? (
+                          <div className="grid gap-2">
+                            <input
+                              type="text"
+                              value={metaDraft.title}
+                              onChange={(e) =>
+                                setLabMetaDrafts((prev) => ({
+                                  ...prev,
+                                  [lab.id]: {
+                                    ...(prev[lab.id] ?? {
+                                      title: lab.title,
+                                      description: lab.description ?? "",
+                                    }),
+                                    title: e.target.value,
+                                  },
+                                }))
+                              }
+                              placeholder="Título del lab"
+                              className="w-full rounded border border-gray-600 bg-black p-2 text-sm"
+                            />
+                            <input
+                              type="text"
+                              value={metaDraft.description}
+                              onChange={(e) =>
+                                setLabMetaDrafts((prev) => ({
+                                  ...prev,
+                                  [lab.id]: {
+                                    ...(prev[lab.id] ?? {
+                                      title: lab.title,
+                                      description: lab.description ?? "",
+                                    }),
+                                    description: e.target.value,
+                                  },
+                                }))
+                              }
+                              placeholder="Subtexto / descripción corta"
+                              className="w-full rounded border border-gray-600 bg-black p-2 text-sm"
+                            />
+                            <input
+                              type="text"
+                              value={metaDraft.slug}
+                              onChange={(e) =>
+                                setLabMetaDrafts((prev) => ({
+                                  ...prev,
+                                  [lab.id]: {
+                                    ...(prev[lab.id] ?? {
+                                      title: lab.title,
+                                      description: lab.description ?? "",
+                                      slug: lab.slug ?? "",
+                                      coverImageUrl: lab.cover_image_url ?? "",
+                                      accentColor: lab.accent_color ?? "#0A56C6",
+                                    }),
+                                    slug: e.target.value,
+                                  },
+                                }))
+                              }
+                              placeholder="Slug (ej. prompt-engineering)"
+                              className="w-full rounded border border-gray-600 bg-black p-2 text-sm"
+                            />
+                            <input
+                              type="text"
+                              value={metaDraft.coverImageUrl}
+                              onChange={(e) =>
+                                setLabMetaDrafts((prev) => ({
+                                  ...prev,
+                                  [lab.id]: {
+                                    ...(prev[lab.id] ?? {
+                                      title: lab.title,
+                                      description: lab.description ?? "",
+                                      slug: lab.slug ?? "",
+                                      coverImageUrl: lab.cover_image_url ?? "",
+                                      accentColor: lab.accent_color ?? "#0A56C6",
+                                    }),
+                                    coverImageUrl: e.target.value,
+                                  },
+                                }))
+                              }
+                              placeholder="URL imagen portada"
+                              className="w-full rounded border border-gray-600 bg-black p-2 text-sm"
+                            />
+                            <div className="flex items-center gap-2 rounded border border-gray-600 bg-black p-2">
+                              <input
+                                type="color"
+                                value={normalizeAccentColor(metaDraft.accentColor) ?? "#0A56C6"}
+                                onChange={(e) =>
+                                  setLabMetaDrafts((prev) => ({
+                                    ...prev,
+                                    [lab.id]: {
+                                      ...(prev[lab.id] ?? {
+                                        title: lab.title,
+                                        description: lab.description ?? "",
+                                        slug: lab.slug ?? "",
+                                        coverImageUrl: lab.cover_image_url ?? "",
+                                        accentColor: lab.accent_color ?? "#0A56C6",
+                                      }),
+                                      accentColor: e.target.value,
+                                    },
+                                  }))
+                                }
+                                className="h-8 w-8 rounded border border-gray-700 bg-transparent p-0"
+                                aria-label="Color de acento"
+                              />
+                              <input
+                                type="text"
+                                value={metaDraft.accentColor}
+                                onChange={(e) =>
+                                  setLabMetaDrafts((prev) => ({
+                                    ...prev,
+                                    [lab.id]: {
+                                      ...(prev[lab.id] ?? {
+                                        title: lab.title,
+                                        description: lab.description ?? "",
+                                        slug: lab.slug ?? "",
+                                        coverImageUrl: lab.cover_image_url ?? "",
+                                        accentColor: lab.accent_color ?? "#0A56C6",
+                                      }),
+                                      accentColor: e.target.value,
+                                    },
+                                  }))
+                                }
+                                placeholder="#0A56C6"
+                                className="w-full bg-transparent text-xs text-gray-200 outline-none"
+                              />
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <p className="text-sm font-semibold text-gray-100">{lab.title}</p>
+                              {isSelected && (
+                                <span className="rounded-full border border-cyan-500/50 bg-cyan-900/30 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-cyan-200">
+                                  Seleccionado
+                                </span>
+                              )}
+                            </div>
+                            <p className="truncate text-xs text-gray-500">
+                              {lab.description ?? "Sin descripción"}
+                            </p>
+                            <div className="flex flex-wrap items-center gap-2 text-[10px] text-gray-400">
+                              <span className="rounded border border-gray-700/80 bg-black/35 px-2 py-0.5">
+                                slug: {lab.slug ?? "auto"}
+                              </span>
+                              <span className="rounded border border-gray-700/80 bg-black/35 px-2 py-0.5">
+                                portada: {lab.cover_image_url ? "Sí" : "No"}
+                              </span>
+                              <span className="rounded border border-gray-700/80 bg-black/35 px-2 py-0.5">
+                                acento: {lab.accent_color ?? "default"}
+                              </span>
+                            </div>
+                          </>
+                        )}
+
+                        <div className="flex flex-wrap items-center gap-1">
+                          {normalizeLabels(lab.labels).map((label) => (
+                            <span
+                              key={`${lab.id}-${label}`}
+                              className="rounded-full border border-cyan-500/50 bg-cyan-900/30 px-2 py-0.5 text-[10px] font-semibold text-cyan-200"
+                            >
+                              {label}
+                            </span>
+                          ))}
+                          {normalizeLabels(lab.labels).length === 0 && (
+                            <span className="text-[10px] text-gray-500">Sin etiquetas</span>
+                          )}
+                        </div>
+
+                        {metrics && (
+                          <div className="flex flex-wrap gap-1 text-[10px]">
+                            <span className="rounded border border-gray-700/70 bg-black/35 px-2 py-0.5 text-gray-300">
+                              Días: {metrics.dayCount}
+                            </span>
+                            <span className="rounded border border-gray-700/70 bg-black/35 px-2 py-0.5 text-gray-300">
+                              Comentarios: {metrics.commentCount}
+                            </span>
+                            <span className="rounded border border-gray-700/70 bg-black/35 px-2 py-0.5 text-gray-300">
+                              Activos: {metrics.activeEntitlementCount}
+                            </span>
+                            <span className="rounded border border-gray-700/70 bg-black/35 px-2 py-0.5 text-gray-300">
+                              Progreso: {metrics.progressCount}
+                            </span>
+                          </div>
+                        )}
+
+                        <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                          <input
+                            type="text"
+                            value={labLabelDrafts[lab.id] ?? formatLabelsForInput(lab.labels)}
+                            onChange={(e) =>
+                              setLabLabelDrafts((prev) => ({
+                                ...prev,
+                                [lab.id]: e.target.value,
+                              }))
+                            }
+                            placeholder="NEW, TOP, ETC"
+                            className="w-full rounded border border-gray-600 bg-black p-1.5 text-xs"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => void saveLabLabels(lab.id)}
+                            disabled={savingLabelsLabId === lab.id}
+                            className="rounded-md border border-cyan-600/70 bg-cyan-900/45 px-2.5 py-1 text-[11px] font-medium leading-4 text-cyan-100 transition hover:bg-cyan-800/55 disabled:opacity-60"
+                          >
+                            {savingLabelsLabId === lab.id
+                              ? "Guardando..."
+                              : "Guardar etiquetas"}
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-1.5 md:justify-end">
+                        <button
+                          type="button"
+                          onClick={() => handleSelectLab(lab.id)}
+                          className={`rounded-md border px-2.5 py-1 text-[11px] font-medium leading-4 transition ${
+                            isSelected
+                              ? "border-cyan-400/70 bg-cyan-900/40 text-cyan-100"
+                              : "border-gray-600 bg-gray-800 text-gray-200 hover:border-gray-500 hover:bg-gray-700"
+                          }`}
                         >
-                          {label}
-                        </span>
-                      ))}
-                      {normalizeLabels(lab.labels).length === 0 && (
-                        <span className="text-[10px] text-gray-500">Sin etiquetas</span>
-                      )}
-                    </div>
-                    <div className="mt-2 flex gap-2">
-                      <input
-                        type="text"
-                        value={labLabelDrafts[lab.id] ?? formatLabelsForInput(lab.labels)}
-                        onChange={(e) =>
-                          setLabLabelDrafts((prev) => ({
-                            ...prev,
-                            [lab.id]: e.target.value,
-                          }))
-                        }
-                        placeholder="NEW, TOP, ETC"
-                        className="w-full max-w-sm rounded border border-gray-600 bg-black p-1.5 text-xs"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => void saveLabLabels(lab.id)}
-                        disabled={savingLabelsLabId === lab.id}
-                        className="px-2 py-1 text-xs rounded bg-cyan-800 hover:bg-cyan-700 disabled:opacity-60"
-                      >
-                        {savingLabelsLabId === lab.id ? "Guardando..." : "Guardar etiquetas"}
-                      </button>
+                          {isSelected ? "Seleccionado" : "Seleccionar"}
+                        </button>
+
+                        {isEditing ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => void saveLabMeta(lab.id)}
+                              disabled={savingLabMetaId === lab.id}
+                              className="rounded-md border border-emerald-500/70 bg-emerald-900/45 px-2.5 py-1 text-[11px] font-medium leading-4 text-emerald-100 transition hover:bg-emerald-800/55 disabled:opacity-50"
+                            >
+                              {savingLabMetaId === lab.id ? "Guardando..." : "Guardar"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={cancelEditLabMeta}
+                              className="rounded-md border border-gray-600 bg-gray-800 px-2.5 py-1 text-[11px] font-medium leading-4 text-gray-200 transition hover:border-gray-500 hover:bg-gray-700"
+                            >
+                              Cancelar
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => startEditLabMeta(lab)}
+                              className="rounded-md border border-indigo-500/70 bg-indigo-900/40 px-2.5 py-1 text-[11px] font-medium leading-4 text-indigo-100 transition hover:bg-indigo-800/55"
+                            >
+                              Editar texto
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void duplicateLab(lab.id)}
+                              disabled={duplicatingLabId === lab.id}
+                              className="rounded-md border border-emerald-500/70 bg-emerald-900/35 px-2.5 py-1 text-[11px] font-medium leading-4 text-emerald-100 transition hover:bg-emerald-800/55 disabled:opacity-50"
+                            >
+                              {duplicatingLabId === lab.id ? "Duplicando..." : "Duplicar"}
+                            </button>
+                          </>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() => void deleteLab(lab)}
+                          disabled={isDeletingLabId === lab.id}
+                          className="rounded-md border border-red-600/80 bg-red-900/45 px-2.5 py-1 text-[11px] font-medium leading-4 text-red-100 transition hover:bg-red-800/60 disabled:opacity-50"
+                        >
+                          {isDeletingLabId === lab.id ? "Eliminando..." : "Eliminar Lab"}
+                        </button>
+                      </div>
                     </div>
                   </div>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => handleSelectLab(lab.id)}
-                      className="px-3 py-1 text-xs rounded bg-gray-700 hover:bg-gray-600"
-                    >
-                      Seleccionar
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void deleteLab(lab)}
-                      disabled={isDeletingLabId === lab.id}
-                      className="px-3 py-1 text-xs rounded bg-red-900/70 hover:bg-red-800 disabled:opacity-50"
-                    >
-                      {isDeletingLabId === lab.id ? "Eliminando..." : "Eliminar Lab"}
-                    </button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
               {labs.length === 0 && (
                 <p className="text-sm text-gray-400">No hay labs para mostrar.</p>
               )}
@@ -1253,17 +1905,17 @@ export default function AdminPanel({
         )}
 
         {activeTab === "days" && (
-          <section className="bg-gray-800 p-6 rounded-lg border border-gray-700">
+          <section className="rounded-lg border border-gray-700 bg-gray-800 p-4 md:p-6">
           <h2 className="text-xl font-bold mb-4 text-green-400">
             3. Disenar Dias con Bloques de Contenido
           </h2>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            <div className="col-span-1 border-r border-gray-700 pr-4">
+          <div className="grid grid-cols-1 gap-6 xl:grid-cols-[320px_minmax(0,1fr)] xl:gap-8">
+            <div className="space-y-6 xl:border-r xl:border-gray-700 xl:pr-5">
               <h3 className="text-sm text-gray-400 mb-2 uppercase font-bold">
                 Selecciona un Lab:
               </h3>
-              <ul className="space-y-2">
+              <ul className="grid grid-cols-1 gap-2">
                 {labs.map((lab) => (
                   <li
                     key={lab.id}
@@ -1289,19 +1941,28 @@ export default function AdminPanel({
                   </button>
                 </div>
                 {daysMsg && <p className="text-xs text-yellow-300 mb-2">{daysMsg}</p>}
-                <ul className="space-y-2 max-h-64 overflow-auto pr-1">
+                <ul className="grid grid-cols-1 gap-2">
                   {days.map((day) => (
                     <li
                       key={day.id}
-                      className={`p-2 rounded border ${editingDayId === day.id ? "border-green-500 bg-green-950/30" : "border-gray-700 bg-black/40"}`}
+                      className={`rounded border p-2.5 transition ${
+                        editingDayId === day.id
+                          ? "border-green-500 bg-green-950/30"
+                          : "border-gray-700 bg-black/40 hover:border-gray-500"
+                      }`}
                     >
                       <button
                         type="button"
-                        className="w-full text-left"
+                        className="w-full text-left space-y-1"
+                        title={`Dia ${day.day_number}: ${day.title}`}
                         onClick={() => startEditDay(day)}
                       >
-                        <p className="text-xs text-gray-400">Dia {day.day_number}</p>
-                        <p className="text-sm text-gray-100 truncate">{day.title}</p>
+                        <p className="text-[11px] uppercase tracking-wider text-gray-400">
+                          Dia {day.day_number}
+                        </p>
+                        <p className="truncate text-sm font-medium leading-snug text-gray-100">
+                          {day.title}
+                        </p>
                       </button>
                     </li>
                   ))}
@@ -1312,17 +1973,22 @@ export default function AdminPanel({
               </div>
             </div>
 
-            <div className="col-span-2">
+            <div className="min-w-0">
               {!selectedLab ? (
                 <div className="h-full flex items-center justify-center text-gray-500 italic">
                   Selecciona un curso de la lista para agregar contenido.
                 </div>
               ) : (
                 <form onSubmit={saveDay} className="space-y-4 animate-fadeIn">
-                  <div className="flex items-center justify-between gap-3">
-                    <h3 className="font-bold text-lg text-white">
-                      {editingDayId ? "Editar Dia" : "Constructor de Dia"}
-                    </h3>
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h3 className="font-bold text-xl tracking-tight text-white">
+                        {editingDayId ? "Editar Dia" : "Constructor de Dia"}
+                      </h3>
+                      <p className="mt-1 text-xs text-gray-400">
+                        Orden visual libre. El bloque con rol Principal define la ruta del día.
+                      </p>
+                    </div>
                     {editingDayId && (
                       <button
                         type="button"
@@ -1334,8 +2000,8 @@ export default function AdminPanel({
                     )}
                   </div>
 
-                  <div className="flex gap-4">
-                    <div className="w-24">
+                  <div className="grid gap-4 md:grid-cols-[110px_minmax(0,1fr)]">
+                    <div>
                       <label className="text-xs text-gray-400">Dia #</label>
                       <input
                         type="number"
@@ -1362,10 +2028,13 @@ export default function AdminPanel({
 
                   <div className="border border-gray-700 rounded-lg p-4 space-y-4 bg-gray-900/60">
                     <div className="flex flex-wrap gap-2 items-center justify-between">
-                      <p className="text-sm text-gray-300 font-semibold">
-                        Bloques del dia (mezcla libre de medios)
+                      <p className="text-sm font-semibold tracking-tight text-gray-100">
+                        Bloques del día
+                        <span className="ml-2 text-xs font-medium text-gray-400">
+                          mezcla libre de medios
+                        </span>
                       </p>
-                      <div className="flex flex-wrap gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <button
                           type="button"
                           onClick={() => addBlock("text")}
@@ -1415,57 +2084,189 @@ export default function AdminPanel({
                         >
                           + Quiz
                         </button>
+                        <div className="ml-1 h-5 w-px bg-gray-700" />
+                        <button
+                          type="button"
+                          onClick={undoBlocks}
+                          disabled={!canUndoBlocks}
+                          className="px-3 py-1 text-xs rounded border border-gray-700 bg-black/40 text-gray-200 hover:border-gray-500 disabled:opacity-40 disabled:cursor-not-allowed"
+                          title="Deshacer (Ctrl/Cmd + Z)"
+                        >
+                          Deshacer
+                        </button>
+                        <button
+                          type="button"
+                          onClick={redoBlocks}
+                          disabled={!canRedoBlocks}
+                          className="px-3 py-1 text-xs rounded border border-gray-700 bg-black/40 text-gray-200 hover:border-gray-500 disabled:opacity-40 disabled:cursor-not-allowed"
+                          title="Rehacer (Ctrl/Cmd + Y o Cmd + Shift + Z)"
+                        >
+                          Rehacer
+                        </button>
+                        <span className="text-[11px] text-gray-400">
+                          Ctrl/Cmd + Z
+                        </span>
+                      </div>
+                    </div>
+
+                    <p className="rounded border border-gray-700/80 bg-black/25 px-3 py-2 text-[11px] text-gray-300">
+                      Tip: en <span className="text-white font-semibold">Recurso principal</span>,
+                      marca un solo bloque como <span className="text-white font-semibold">Principal (ruta)</span>.
+                      Ese bloque define el paso 1 y la lógica de avance.
+                    </p>
+
+                    <div className="rounded border border-gray-700 bg-black/30 p-2">
+                      <p className="mb-2 text-[11px] uppercase tracking-wider text-gray-400">
+                        Preset visual del constructor
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setDayBlocksViewPreset("all")}
+                          className={`rounded px-3 py-1 text-xs font-semibold transition ${
+                            dayBlocksViewPreset === "all"
+                              ? "border border-white/25 bg-white/12 text-white"
+                              : "border border-gray-700 bg-black/40 text-gray-300 hover:border-gray-500"
+                          }`}
+                        >
+                          Todo ({blocks.length})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setDayBlocksViewPreset("resource")}
+                          className={`rounded px-3 py-1 text-xs font-semibold transition ${
+                            dayBlocksViewPreset === "resource"
+                              ? "border border-[var(--ast-sky)]/55 bg-[var(--ast-cobalt)]/25 text-[var(--ast-sky)]"
+                              : "border border-gray-700 bg-black/40 text-gray-300 hover:border-[var(--ast-sky)]/40"
+                          }`}
+                        >
+                          Recurso principal ({resourceBlockCount})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setDayBlocksViewPreset("challenge")}
+                          className={`rounded px-3 py-1 text-xs font-semibold transition ${
+                            dayBlocksViewPreset === "challenge"
+                              ? "border border-[var(--ast-mint)]/55 bg-[var(--ast-emerald)]/25 text-[var(--ast-mint)]"
+                              : "border border-gray-700 bg-black/40 text-gray-300 hover:border-[var(--ast-mint)]/40"
+                          }`}
+                        >
+                          Reto del día ({challengeBlockCount})
+                        </button>
                       </div>
                     </div>
 
                     {blocks.map((block, index) => (
+                      (() => {
+                        const blockGroup = block.group ?? getDefaultDayBlockGroup(block.type);
+                        const blockRole = normalizeBlockRole(block.role, blockGroup);
+                        const isVisibleInPreset =
+                          dayBlocksViewPreset === "all" ||
+                          dayBlocksViewPreset === blockGroup;
+                        if (!isVisibleInPreset) return null;
+
+                        return (
                       <div
                         key={block.id}
-                        className="border border-gray-700 rounded-lg p-3 space-y-3 bg-black/40"
+                        className={`rounded-lg p-3 space-y-3 ${
+                          blockGroup === "challenge"
+                            ? "border border-[var(--ast-mint)]/45 bg-[rgba(0,73,44,0.22)]"
+                            : "border border-[var(--ast-sky)]/35 bg-[rgba(1,25,99,0.18)]"
+                        }`}
                       >
-                        <div className="flex items-center justify-between gap-3">
-                          <div className="text-sm text-gray-300">
-                            Bloque {index + 1}:{" "}
-                            <span className="uppercase text-green-400">
-                              {block.type}
-                            </span>
+                        <div className="space-y-2">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="text-[11px] uppercase tracking-wider text-gray-400">
+                                Bloque {index + 1}
+                              </p>
+                              <div className="mt-1 flex items-center gap-2">
+                                <p className="text-sm font-semibold text-green-400">
+                                  {getBlockTypeLabel(block.type)}
+                                </p>
+                                {blockGroup === "resource" && blockRole === "primary" && (
+                                  <span className="rounded-full border border-[var(--ast-yellow)]/50 bg-[var(--ast-rust)]/35 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--ast-yellow)]">
+                                    Ruta
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                className="px-2 py-1 text-xs rounded bg-gray-700 hover:bg-gray-600 disabled:opacity-40"
+                                onClick={() => moveBlock(index, -1)}
+                                disabled={index === 0}
+                                title="Mover bloque arriba"
+                              >
+                                ↑
+                              </button>
+                              <button
+                                type="button"
+                                className="px-2 py-1 text-xs rounded bg-gray-700 hover:bg-gray-600 disabled:opacity-40"
+                                onClick={() => moveBlock(index, 1)}
+                                disabled={index === blocks.length - 1}
+                                title="Mover bloque abajo"
+                              >
+                                ↓
+                              </button>
+                            </div>
                           </div>
-                          <div className="flex gap-2">
-                            <button
-                              type="button"
-                              className="px-2 py-1 text-xs rounded bg-gray-700 hover:bg-gray-600 disabled:opacity-40"
-                              onClick={() => moveBlock(index, -1)}
-                              disabled={index === 0}
+
+                          <div className="grid gap-2 sm:grid-cols-[auto_minmax(0,1fr)_auto_minmax(0,1fr)] sm:items-center">
+                            <label className="text-xs text-gray-400">Sección</label>
+                            <select
+                              value={blockGroup}
+                              onChange={(e) => {
+                                const nextGroup = e.target.value as DayBlockGroup;
+                                updateBlock(block.id, {
+                                  group: nextGroup,
+                                  role:
+                                    nextGroup === "resource"
+                                      ? normalizeBlockRole(block.role, nextGroup)
+                                      : "support",
+                                });
+                              }}
+                              className="rounded border border-gray-700 bg-black px-2 py-1 text-xs text-gray-200"
                             >
-                              ↑
-                            </button>
-                            <button
-                              type="button"
-                              className="px-2 py-1 text-xs rounded bg-gray-700 hover:bg-gray-600 disabled:opacity-40"
-                              onClick={() => moveBlock(index, 1)}
-                              disabled={index === blocks.length - 1}
-                            >
-                              ↓
-                            </button>
-                            <button
-                              type="button"
-                              className="px-2 py-1 text-xs rounded bg-red-900/60 hover:bg-red-800 disabled:opacity-40"
-                              onClick={() => removeBlock(block.id)}
-                              disabled={blocks.length === 1}
-                            >
-                              Eliminar
-                            </button>
+                              <option value="resource">Recurso principal</option>
+                              <option value="challenge">Reto del día</option>
+                            </select>
+
+                            {blockGroup === "resource" && (
+                              <>
+                                <label className="text-xs text-gray-400">Rol</label>
+                                <select
+                                  value={blockRole}
+                                  onChange={(e) =>
+                                    updateBlock(block.id, {
+                                      role: e.target.value as DayBlockRole,
+                                    })
+                                  }
+                                  className="rounded border border-gray-700 bg-black px-2 py-1 text-xs text-gray-200"
+                                >
+                                  <option value="primary">Principal (ruta)</option>
+                                  <option value="support">Soporte</option>
+                                </select>
+                              </>
+                            )}
                           </div>
+                          {blockGroup === "resource" && (
+                            <p className="text-[11px] text-gray-400">
+                              Principal: aparece como paso 1 en Ruta del día y controla el avance.
+                            </p>
+                          )}
                         </div>
 
                         {block.type === "text" && (
-                          <textarea
+                          <RichTextEditor
                             value={block.text ?? ""}
-                            onChange={(e) =>
-                              updateBlock(block.id, { text: e.target.value })
+                            onChange={(nextHtml) =>
+                              updateBlock(block.id, { text: nextHtml })
                             }
-                            placeholder="Escribe la lectura/instruccion..."
-                            className="w-full p-2 h-28 rounded bg-gray-950 border border-gray-700"
+                            placeholder="Escribe la lectura/instrucción..."
+                            minHeightClassName="min-h-[150px]"
+                            compact
                           />
                         )}
 
@@ -1700,8 +2501,31 @@ export default function AdminPanel({
                             </button>
                           </div>
                         )}
+
+                        <div className="flex justify-end border-t border-gray-700/70 pt-2">
+                          <button
+                            type="button"
+                            className="px-3 py-1 text-xs rounded border border-red-700/70 bg-red-950/45 text-red-200 hover:bg-red-900/55 disabled:opacity-40"
+                            onClick={() => removeBlock(block.id)}
+                            disabled={blocks.length === 1}
+                          >
+                            Eliminar bloque
+                          </button>
+                        </div>
                       </div>
+                        );
+                      })()
                     ))}
+
+                    {dayBlocksViewPreset !== "all" &&
+                      ((dayBlocksViewPreset === "resource" &&
+                        resourceBlockCount === 0) ||
+                        (dayBlocksViewPreset === "challenge" &&
+                          challengeBlockCount === 0)) && (
+                        <p className="rounded border border-dashed border-gray-600 bg-black/30 p-3 text-sm text-gray-400">
+                          No hay bloques en esta sección todavía.
+                        </p>
+                      )}
                   </div>
 
                   <div className="flex gap-3">
@@ -2198,6 +3022,70 @@ export default function AdminPanel({
   );
 }
 
+function normalizeBlockRole(
+  role: DayBlockRole | undefined,
+  group: DayBlockGroup,
+): DayBlockRole {
+  if (group === "challenge") return "support";
+  return role === "primary" ? "primary" : "support";
+}
+
+function cloneDayBlocks(blocks: DayBlock[]): DayBlock[] {
+  return JSON.parse(JSON.stringify(blocks)) as DayBlock[];
+}
+
+function getBlocksSignature(blocks: DayBlock[]): string {
+  return JSON.stringify(blocks);
+}
+
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
+  return Boolean(
+    target.closest(
+      "input, textarea, [contenteditable='true'], [contenteditable=''], [role='textbox']",
+    ),
+  );
+}
+
+function ensurePrimaryResourceBlock(blocks: DayBlock[]): DayBlock[] {
+  const resourceIndexes = blocks
+    .map((block, index) =>
+      (block.group ?? getDefaultDayBlockGroup(block.type)) === "resource" ? index : -1,
+    )
+    .filter((index) => index >= 0);
+
+  if (resourceIndexes.length === 0) return blocks;
+
+  const existingPrimaryIndex = blocks.findIndex(
+    (block) =>
+      (block.group ?? getDefaultDayBlockGroup(block.type)) === "resource" &&
+      block.role === "primary",
+  );
+  const selectedPrimaryIndex =
+    existingPrimaryIndex >= 0 ? existingPrimaryIndex : resourceIndexes[0];
+
+  return blocks.map((block, index) => {
+    const group = block.group ?? getDefaultDayBlockGroup(block.type);
+    const nextRole = normalizeBlockRole(
+      index === selectedPrimaryIndex ? "primary" : "support",
+      group,
+    );
+    if (block.role === nextRole) return block;
+    return { ...block, role: nextRole };
+  });
+}
+
+function getBlockTypeLabel(type: DayBlockType): string {
+  if (type === "text") return "Texto";
+  if (type === "video") return "Video";
+  if (type === "audio") return "Audio";
+  if (type === "image") return "Imagen";
+  if (type === "file") return "Documento";
+  if (type === "checklist") return "Checklist";
+  if (type === "quiz") return "Quiz";
+  return type;
+}
+
 function getNextDayNumber(days: AdminDay[]): number {
   if (days.length === 0) return 1;
   const maxDay = Math.max(...days.map((day) => day.day_number));
@@ -2244,10 +3132,21 @@ function parseLabelsInput(raw: string): string[] {
 }
 
 function isMissingLabelsColumnError(message: string): boolean {
+  return isMissingColumnError(message, "labels");
+}
+
+function isMissingLabMetaColumnsError(message: string): boolean {
+  return (
+    isMissingColumnError(message, "slug") ||
+    isMissingColumnError(message, "cover_image_url") ||
+    isMissingColumnError(message, "accent_color")
+  );
+}
+
+function isDuplicateSlugError(message: string): boolean {
   const lower = message.toLowerCase();
   return (
-    lower.includes("column") &&
-    lower.includes("labels") &&
-    (lower.includes("does not exist") || lower.includes("schema cache"))
+    lower.includes("duplicate key") &&
+    (lower.includes("slug") || lower.includes("labs_slug"))
   );
 }

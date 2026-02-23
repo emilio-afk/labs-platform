@@ -72,12 +72,16 @@ const LAB_PALETTES: readonly LabPaletteTemplate[] = [
   },
 ];
 
-export function getLabPalette(seed: string, backgroundImageUrl?: string | null): LabPalette {
+export function getLabPalette(
+  seed: string,
+  backgroundImageUrl?: string | null,
+  accentColorOverride?: string | null,
+): LabPalette {
   if (!seed) {
-    return materializePalette(LAB_PALETTES[0], backgroundImageUrl);
+    return materializePalette(LAB_PALETTES[0], backgroundImageUrl, accentColorOverride);
   }
   const index = hashSeed(seed) % LAB_PALETTES.length;
-  return materializePalette(LAB_PALETTES[index], backgroundImageUrl);
+  return materializePalette(LAB_PALETTES[index], backgroundImageUrl, accentColorOverride);
 }
 
 function hashSeed(seed: string): number {
@@ -92,6 +96,7 @@ function hashSeed(seed: string): number {
 function materializePalette(
   template: LabPaletteTemplate,
   backgroundImageUrl?: string | null,
+  accentColorOverride?: string | null,
 ): LabPalette {
   const primaryImageUrl =
     typeof backgroundImageUrl === "string" && backgroundImageUrl.trim()
@@ -99,13 +104,48 @@ function materializePalette(
       : DEFAULT_LAB_PEOPLE_BG;
   const safePrimaryImageUrl = primaryImageUrl.replace(/"/g, "%22");
   const safeFallbackImageUrl = DEFAULT_LAB_PEOPLE_BG.replace(/"/g, "%22");
+
+  const accentHex = normalizeHexColor(accentColorOverride ?? "");
+  const accentColor = accentHex ?? template.accentColor;
+  const borderColor = accentHex ? hexToRgba(accentHex, 0.52) : template.borderColor;
+  const outlineShadow = accentHex
+    ? `0 0 0 1px ${hexToRgba(accentHex, 0.56)}, 0 0 0 2px ${hexToRgba(
+        accentHex,
+        0.14,
+      )}, 0 0 24px ${hexToRgba(accentHex, 0.20)}`
+    : template.outlineShadow;
+  const glowColor = accentHex ? hexToRgba(accentHex, 0.20) : template.glowColor;
+  const chipBackground = accentHex ? hexToRgba(accentHex, 0.20) : template.chipBackground;
+  const chipTextColor = accentHex ? accentHex : template.chipTextColor;
+
   return {
     cardBackground: `${template.backgroundOverlay}, url("${safePrimaryImageUrl}") center / cover no-repeat, url("${safeFallbackImageUrl}") center / cover no-repeat`,
-    borderColor: template.borderColor,
-    outlineShadow: template.outlineShadow,
-    accentColor: template.accentColor,
-    glowColor: template.glowColor,
-    chipBackground: template.chipBackground,
-    chipTextColor: template.chipTextColor,
+    borderColor,
+    outlineShadow,
+    accentColor,
+    glowColor,
+    chipBackground,
+    chipTextColor,
   };
+}
+
+function normalizeHexColor(raw: string): string | null {
+  const value = raw.trim();
+  const short = value.match(/^#([0-9a-fA-F]{3})$/);
+  if (short) {
+    const [r, g, b] = short[1].split("");
+    return `#${r}${r}${g}${g}${b}${b}`.toUpperCase();
+  }
+  const full = value.match(/^#([0-9a-fA-F]{6})$/);
+  if (!full) return null;
+  return `#${full[1].toUpperCase()}`;
+}
+
+function hexToRgba(hex: string, alpha: number): string {
+  const normalized = normalizeHexColor(hex);
+  if (!normalized) return `rgba(255,255,255,${alpha})`;
+  const r = Number.parseInt(normalized.slice(1, 3), 16);
+  const g = Number.parseInt(normalized.slice(3, 5), 16);
+  const b = Number.parseInt(normalized.slice(5, 7), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }

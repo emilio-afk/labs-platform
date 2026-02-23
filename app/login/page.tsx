@@ -2,7 +2,7 @@
 
 import { createClient } from "@/utils/supabase/client";
 import Image from "next/image";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type AuthMode = "login" | "signup" | "recover";
 
@@ -20,6 +20,8 @@ export default function LoginPage() {
   const [messageType, setMessageType] = useState<"success" | "error" | "info">(
     "info",
   );
+  const [emailCooldownUntil, setEmailCooldownUntil] = useState<number | null>(null);
+  const [nowTs, setNowTs] = useState(() => Date.now());
 
   const subtitle =
     mode === "login"
@@ -32,6 +34,18 @@ export default function LoginPage() {
     setMessageType(type);
     setMessage(text);
   };
+
+  const isEmailCooldownActive = Boolean(emailCooldownUntil && emailCooldownUntil > nowTs);
+  const cooldownSeconds =
+    isEmailCooldownActive && emailCooldownUntil
+      ? Math.ceil((emailCooldownUntil - nowTs) / 1000)
+      : 0;
+
+  useEffect(() => {
+    if (!isEmailCooldownActive) return;
+    const interval = window.setInterval(() => setNowTs(Date.now()), 1000);
+    return () => window.clearInterval(interval);
+  }, [isEmailCooldownActive]);
 
   const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -55,6 +69,13 @@ export default function LoginPage() {
 
   const handleSignup = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (isEmailCooldownActive) {
+      setUiMessage(
+        "error",
+        `Espera ${cooldownSeconds}s antes de volver a enviar otro correo.`,
+      );
+      return;
+    }
     if (!fullName.trim()) {
       setUiMessage("error", "El nombre es obligatorio.");
       return;
@@ -86,6 +107,9 @@ export default function LoginPage() {
     });
 
     if (error) {
+      if (isEmailRateLimitError(error.message)) {
+        setEmailCooldownUntil(Date.now() + 60_000);
+      }
       setUiMessage("error", translateAuthError(error.message));
       setLoading(false);
       return;
@@ -113,6 +137,13 @@ export default function LoginPage() {
 
   const handleSendRecovery = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (isEmailCooldownActive) {
+      setUiMessage(
+        "error",
+        `Espera ${cooldownSeconds}s antes de volver a enviar otro correo.`,
+      );
+      return;
+    }
     if (!email.trim()) {
       setUiMessage("error", "Escribe tu correo para enviar la recuperación.");
       return;
@@ -129,6 +160,9 @@ export default function LoginPage() {
     });
 
     if (error) {
+      if (isEmailRateLimitError(error.message)) {
+        setEmailCooldownUntil(Date.now() + 60_000);
+      }
       setUiMessage("error", translateAuthError(error.message));
       setLoading(false);
       return;
@@ -271,7 +305,13 @@ export default function LoginPage() {
               onChange={setConfirmPassword}
               autoComplete="new-password"
             />
-            <SubmitButton loading={loading} label="Crear cuenta" fullWidth />
+            <SubmitButton
+              loading={loading}
+              label="Crear cuenta"
+              fullWidth
+              disabled={isEmailCooldownActive}
+              disabledLabel={`Espera ${cooldownSeconds}s`}
+            />
           </form>
         )}
 
@@ -291,7 +331,13 @@ export default function LoginPage() {
               Te enviaremos una liga para restablecer contraseña en una pantalla
               separada.
             </p>
-            <SubmitButton loading={loading} label="Enviar enlace de recuperación" fullWidth />
+            <SubmitButton
+              loading={loading}
+              label="Enviar enlace de recuperación"
+              fullWidth
+              disabled={isEmailCooldownActive}
+              disabledLabel={`Espera ${cooldownSeconds}s`}
+            />
           </form>
         )}
 
@@ -339,13 +385,22 @@ type SubmitButtonProps = {
   loading: boolean;
   label: string;
   fullWidth?: boolean;
+  disabled?: boolean;
+  disabledLabel?: string;
 };
 
-function SubmitButton({ loading, label, fullWidth = false }: SubmitButtonProps) {
+function SubmitButton({
+  loading,
+  label,
+  fullWidth = false,
+  disabled = false,
+  disabledLabel,
+}: SubmitButtonProps) {
+  const isDisabled = loading || disabled;
   return (
     <button
       type="submit"
-      disabled={loading}
+      disabled={isDisabled}
       className={`inline-flex items-center justify-center gap-2 rounded-full bg-[var(--ast-mint)] px-5 py-2.5 text-sm font-bold text-[var(--ast-black)] hover:bg-[var(--ast-forest)] transition disabled:opacity-60 ${
         fullWidth ? "w-full" : ""
       }`}
@@ -353,13 +408,20 @@ function SubmitButton({ loading, label, fullWidth = false }: SubmitButtonProps) 
       {loading && (
         <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-black/30 border-t-black" />
       )}
-      {loading ? "Procesando..." : label}
+      {loading ? "Procesando..." : isDisabled && disabledLabel ? disabledLabel : label}
     </button>
   );
 }
 
 function translateAuthError(errorMessage: string) {
   const normalized = errorMessage.toLowerCase();
+  if (
+    normalized.includes("email rate limit exceeded") ||
+    normalized.includes("over_email_send_rate_limit") ||
+    normalized.includes("too many requests")
+  ) {
+    return "Estás enviando demasiados intentos. Espera 60 segundos y vuelve a intentar.";
+  }
   if (
     normalized.includes("invalid login credentials") ||
     normalized.includes("invalid email or password")
@@ -379,4 +441,13 @@ function translateAuthError(errorMessage: string) {
     return "El correo no es válido.";
   }
   return `Error: ${errorMessage}`;
+}
+
+function isEmailRateLimitError(errorMessage: string) {
+  const normalized = errorMessage.toLowerCase();
+  return (
+    normalized.includes("email rate limit exceeded") ||
+    normalized.includes("over_email_send_rate_limit") ||
+    normalized.includes("too many requests")
+  );
 }

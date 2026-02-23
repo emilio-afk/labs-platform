@@ -7,6 +7,9 @@ export type DayBlockType =
   | "checklist"
   | "quiz";
 
+export type DayBlockGroup = "resource" | "challenge";
+export type DayBlockRole = "primary" | "support";
+
 export type DayChecklistItem = {
   id: string;
   text: string;
@@ -23,6 +26,8 @@ export type DayQuizQuestion = {
 export type DayBlock = {
   id: string;
   type: DayBlockType;
+  group?: DayBlockGroup;
+  role?: DayBlockRole;
   title?: string;
   text?: string;
   url?: string;
@@ -62,15 +67,19 @@ export function createQuizQuestion(): DayQuizQuestion {
 
 export function createBlock(type: DayBlockType): DayBlock {
   const id = createId("block");
+  const group = getDefaultDayBlockGroup(type);
+  const role: DayBlockRole = "support";
 
   if (type === "text") {
-    return { id, type, text: "" };
+    return { id, type, group, role, text: "" };
   }
 
   if (type === "checklist") {
     return {
       id,
       type,
+      group,
+      role,
       title: "",
       items: [createChecklistItem()],
     };
@@ -80,12 +89,19 @@ export function createBlock(type: DayBlockType): DayBlock {
     return {
       id,
       type,
+      group,
+      role,
       title: "",
       questions: [createQuizQuestion()],
     };
   }
 
-  return { id, type, url: "", caption: "" };
+  return { id, type, group, role, url: "", caption: "" };
+}
+
+export function getDefaultDayBlockGroup(type: DayBlockType): DayBlockGroup {
+  if (type === "checklist" || type === "quiz") return "challenge";
+  return "resource";
 }
 
 export function extractYouTubeVideoId(url: string | null | undefined): string | null {
@@ -119,6 +135,8 @@ export function parseDayBlocks(
     blocks.push({
       id: "legacy_video",
       type: "video",
+      group: "resource",
+      role: "primary",
       url: legacyVideoUrl,
       caption: "",
     });
@@ -129,6 +147,8 @@ export function parseDayBlocks(
     blocks.push({
       id: "legacy_text",
       type: "text",
+      group: "resource",
+      role: legacyVideoUrl ? "support" : "primary",
       text: trimmed,
     });
   }
@@ -137,10 +157,15 @@ export function parseDayBlocks(
 }
 
 function sanitizeBlock(block: DayBlock): DayBlock {
+  const group = normalizeGroup(block.group, block.type);
+  const role = normalizeRole(block.role, block.type, group);
+
   if (block.type === "text") {
     return {
       id: block.id,
       type: block.type,
+      group,
+      role,
       text: typeof block.text === "string" ? block.text : "",
     };
   }
@@ -149,6 +174,8 @@ function sanitizeBlock(block: DayBlock): DayBlock {
     return {
       id: block.id,
       type: block.type,
+      group,
+      role,
       title: typeof block.title === "string" ? block.title : "",
       items: normalizeChecklistItems(block.items),
     };
@@ -158,6 +185,8 @@ function sanitizeBlock(block: DayBlock): DayBlock {
     return {
       id: block.id,
       type: block.type,
+      group,
+      role,
       title: typeof block.title === "string" ? block.title : "",
       questions: normalizeQuizQuestions(block.questions),
     };
@@ -166,6 +195,8 @@ function sanitizeBlock(block: DayBlock): DayBlock {
   return {
     id: block.id,
     type: block.type,
+    group,
+    role,
     url: typeof block.url === "string" ? block.url : "",
     caption: typeof block.caption === "string" ? block.caption : "",
   };
@@ -205,11 +236,15 @@ function parseBlocksFromJson(content: string | null | undefined): DayBlock[] {
 
     const idValue = record.id;
     const id = typeof idValue === "string" && idValue ? idValue : createBlock(type).id;
+    const group = normalizeGroup(record.group, type);
+    const role = normalizeRole(record.role, type, group);
 
     if (type === "text") {
       blocks.push({
         id,
         type,
+        group,
+        role,
         text: typeof record.text === "string" ? record.text : "",
       });
       continue;
@@ -219,6 +254,8 @@ function parseBlocksFromJson(content: string | null | undefined): DayBlock[] {
       blocks.push({
         id,
         type,
+        group,
+        role,
         title: typeof record.title === "string" ? record.title : "",
         items: normalizeChecklistItems(record.items),
       });
@@ -229,6 +266,8 @@ function parseBlocksFromJson(content: string | null | undefined): DayBlock[] {
       blocks.push({
         id,
         type,
+        group,
+        role,
         title: typeof record.title === "string" ? record.title : "",
         questions: normalizeQuizQuestions(record.questions),
       });
@@ -238,6 +277,8 @@ function parseBlocksFromJson(content: string | null | undefined): DayBlock[] {
     blocks.push({
       id,
       type,
+      group,
+      role,
       url: typeof record.url === "string" ? record.url : "",
       caption: typeof record.caption === "string" ? record.caption : "",
     });
@@ -313,4 +354,20 @@ function getBlocksCandidate(parsed: unknown): unknown {
     return payload.blocks;
   }
   return undefined;
+}
+
+function normalizeGroup(raw: unknown, type: DayBlockType): DayBlockGroup {
+  if (raw === "resource" || raw === "challenge") return raw;
+  return getDefaultDayBlockGroup(type);
+}
+
+function normalizeRole(
+  raw: unknown,
+  type: DayBlockType,
+  group: DayBlockGroup,
+): DayBlockRole {
+  if (group === "challenge") return "support";
+  if (raw === "primary" || raw === "support") return raw;
+  if (type === "video") return "support";
+  return "support";
 }
