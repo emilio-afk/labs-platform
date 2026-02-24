@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useId, useRef } from "react";
+import { sanitizeRichText } from "@/utils/richText";
+import { useEffect, useId, useRef, useState, type ClipboardEvent } from "react";
 
 const FONT_SIZE_TO_PX: Record<string, string> = {
   "2": "14px",
@@ -17,6 +18,13 @@ const NAMED_FONT_SIZE_TO_PX: Record<string, string> = {
   "x-large": "30px",
   "xx-large": "36px",
 };
+
+const LINE_HEIGHT_OPTIONS = [
+  { label: "Compacto", value: "1.2" },
+  { label: "Normal", value: "1.5" },
+  { label: "Amplio", value: "1.8" },
+  { label: "Muy amplio", value: "2" },
+];
 
 type RichTextEditorProps = {
   value: string;
@@ -37,6 +45,8 @@ export default function RichTextEditor({
   const savedRangeRef = useRef<Range | null>(null);
   const colorInputId = useId();
   const bgColorInputId = useId();
+  const [mode, setMode] = useState<"visual" | "html">("visual");
+  const [htmlDraft, setHtmlDraft] = useState(value);
 
   useEffect(() => {
     const editor = editorRef.current;
@@ -53,6 +63,10 @@ export default function RichTextEditor({
       onChange(editor.innerHTML);
     }
   }, [onChange, value]);
+
+  useEffect(() => {
+    setHtmlDraft(value);
+  }, [value]);
 
   const emitChange = () => {
     const editor = editorRef.current;
@@ -209,12 +223,63 @@ export default function RichTextEditor({
     emitChange();
   };
 
+  const runLineHeightCommand = (lineHeight: string) => {
+    applySpanStyle({ "line-height": lineHeight });
+    emitChange();
+  };
+
+  const applyHtmlDraft = () => {
+    const sanitized = sanitizeRichText(htmlDraft);
+    setHtmlDraft(sanitized);
+    onChange(sanitized);
+  };
+
+  const switchMode = (nextMode: "visual" | "html") => {
+    if (mode === nextMode) return;
+    if (mode === "html") {
+      applyHtmlDraft();
+    }
+    setMode(nextMode);
+  };
+
+  const handleVisualPaste = (event: ClipboardEvent<HTMLDivElement>) => {
+    const htmlFromClipboard = event.clipboardData.getData("text/html").trim();
+    const plainText = event.clipboardData.getData("text/plain");
+    const decodedPlainText = decodeBasicHtmlEntities(plainText);
+
+    const htmlCandidate =
+      htmlFromClipboard ||
+      (looksLikeHtmlSnippet(decodedPlainText) ? decodedPlainText : "");
+
+    if (!htmlCandidate) return;
+
+    event.preventDefault();
+    const safeHtml = sanitizeRichText(htmlCandidate);
+    if (!safeHtml) return;
+    runCommand("insertHTML", safeHtml);
+  };
+
   return (
     <div className="space-y-2">
+      <div className="flex items-center gap-2">
+        <ToolbarButton
+          label="Visual"
+          title="Editor visual"
+          compact={compact}
+          onClick={() => switchMode("visual")}
+        />
+        <ToolbarButton
+          label="HTML"
+          title="Editar HTML"
+          compact={compact}
+          onClick={() => switchMode("html")}
+        />
+      </div>
+
       <div
         className={`flex flex-wrap items-center gap-1.5 rounded border border-gray-700 bg-black/50 ${
           compact ? "p-1.5" : "p-2"
-        }`}
+        } ${mode === "html" ? "opacity-60 pointer-events-none" : ""}`}
       >
         <ToolbarButton
           label="B"
@@ -275,6 +340,23 @@ export default function RichTextEditor({
           <option value="5">Título</option>
         </select>
 
+        <select
+          defaultValue="1.5"
+          onMouseDown={rememberSelection}
+          onFocus={rememberSelection}
+          onChange={(e) => runLineHeightCommand(e.target.value)}
+          className={`rounded border border-gray-700 bg-black text-gray-200 ${
+            compact ? "px-1.5 py-1 text-[11px]" : "px-2 py-1 text-xs"
+          }`}
+          aria-label="Interlineado"
+        >
+          {LINE_HEIGHT_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {compact ? option.value : `Interlineado ${option.label}`}
+            </option>
+          ))}
+        </select>
+
         <label
           htmlFor={colorInputId}
           className={`inline-flex items-center gap-1 rounded border border-gray-700 bg-black text-gray-300 ${
@@ -314,22 +396,47 @@ export default function RichTextEditor({
         </label>
       </div>
 
-      <div
-        ref={editorRef}
-        contentEditable
-        suppressContentEditableWarning
-        role="textbox"
-        aria-label={placeholder}
-        data-placeholder={placeholder}
-        onInput={() => {
-          emitChange();
-          rememberSelection();
-        }}
-        onMouseUp={rememberSelection}
-        onKeyUp={rememberSelection}
-        onBlur={rememberSelection}
-        className={`${minHeightClassName} w-full rounded border border-gray-700 bg-gray-950 p-3 text-gray-100 outline-none focus:border-[var(--ast-mint)] [&_h1]:my-0 [&_h2]:my-0 [&_h3]:my-0 [&_h4]:my-0 [&_h5]:my-0 [&_h6]:my-0 [&_h1]:text-[1em] [&_h2]:text-[1em] [&_h3]:text-[1em] [&_h4]:text-[1em] [&_h5]:text-[1em] [&_h6]:text-[1em] [&_h1]:font-inherit [&_h2]:font-inherit [&_h3]:font-inherit [&_h4]:font-inherit [&_h5]:font-inherit [&_h6]:font-inherit [&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-6 [&_li]:mb-1 [&:empty:before]:text-gray-500 [&:empty:before]:content-[attr(data-placeholder)]`}
-      />
+      {mode === "visual" ? (
+        <div
+          ref={editorRef}
+          contentEditable
+          suppressContentEditableWarning
+          role="textbox"
+          aria-label={placeholder}
+          data-placeholder={placeholder}
+          onInput={() => {
+            emitChange();
+            rememberSelection();
+          }}
+          onMouseUp={rememberSelection}
+          onKeyUp={rememberSelection}
+          onBlur={rememberSelection}
+          onPaste={handleVisualPaste}
+          className={`${minHeightClassName} w-full rounded border border-gray-700 bg-gray-950 p-3 text-gray-100 outline-none focus:border-[var(--ast-mint)] [&_h1]:my-0 [&_h2]:my-0 [&_h3]:my-0 [&_h4]:my-0 [&_h5]:my-0 [&_h6]:my-0 [&_h1]:text-[1em] [&_h2]:text-[1em] [&_h3]:text-[1em] [&_h4]:text-[1em] [&_h5]:text-[1em] [&_h6]:text-[1em] [&_h1]:font-inherit [&_h2]:font-inherit [&_h3]:font-inherit [&_h4]:font-inherit [&_h5]:font-inherit [&_h6]:font-inherit [&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-6 [&_li]:mb-1 [&:empty:before]:text-gray-500 [&:empty:before]:content-[attr(data-placeholder)]`}
+        />
+      ) : (
+        <div className="space-y-2">
+          <textarea
+            value={htmlDraft}
+            onChange={(e) => setHtmlDraft(e.target.value)}
+            onBlur={applyHtmlDraft}
+            placeholder="Pega aquí tu HTML..."
+            className={`${minHeightClassName} w-full rounded border border-gray-700 bg-gray-950 p-3 font-mono text-sm text-gray-100 outline-none focus:border-[var(--ast-mint)]`}
+          />
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[11px] text-gray-400">
+              Se aplica automáticamente al salir de este campo o al volver a modo Visual.
+            </p>
+            <button
+              type="button"
+              onClick={applyHtmlDraft}
+              className="rounded border border-[var(--ast-mint)]/60 bg-[var(--ast-emerald)]/20 px-3 py-1 text-xs font-semibold text-[var(--ast-mint)] hover:bg-[var(--ast-emerald)]/30"
+            >
+              Aplicar HTML
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -405,4 +512,17 @@ function ToolbarButton({
       {label}
     </button>
   );
+}
+
+function looksLikeHtmlSnippet(value: string): boolean {
+  return /<\s*\/?\s*[a-z][^>]*>/i.test(value);
+}
+
+function decodeBasicHtmlEntities(value: string): string {
+  return value
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&amp;/gi, "&");
 }

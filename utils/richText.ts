@@ -1,6 +1,12 @@
 const ALLOWED_TAGS = new Set([
   "p",
   "br",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
   "b",
   "strong",
   "i",
@@ -11,6 +17,22 @@ const ALLOWED_TAGS = new Set([
   "ul",
   "ol",
   "li",
+  "blockquote",
+  "pre",
+  "code",
+  "a",
+  "img",
+  "table",
+  "thead",
+  "tbody",
+  "tfoot",
+  "tr",
+  "td",
+  "th",
+  "hr",
+  "small",
+  "sup",
+  "sub",
   "span",
   "div",
 ]);
@@ -19,9 +41,28 @@ const ALLOWED_STYLE_PROPS = new Set([
   "color",
   "background-color",
   "font-size",
+  "line-height",
   "font-weight",
   "font-style",
   "text-decoration",
+  "text-align",
+  "margin-top",
+  "margin-bottom",
+  "margin-left",
+  "margin-right",
+  "padding-top",
+  "padding-bottom",
+  "padding-left",
+  "padding-right",
+  "border",
+  "border-color",
+  "border-width",
+  "border-style",
+  "border-radius",
+  "display",
+  "max-width",
+  "width",
+  "height",
 ]);
 
 const DANGEROUS_TAG_BLOCK_RE =
@@ -88,13 +129,67 @@ function sanitizeWithRegex(raw: string): string {
       if (slash) return `</${tag}>`;
       if (tag === "br") return "<br />";
 
+      const safeAttributes: string[] = [];
       const rawStyle = extractStyleAttribute(String(attributes ?? ""));
-      if (!rawStyle) return `<${tag}>`;
+      if (rawStyle) {
+        const safeStyle = sanitizeStyle(rawStyle);
+        if (safeStyle) {
+          safeAttributes.push(`style="${escapeHtmlAttribute(safeStyle)}"`);
+        }
+      }
 
-      const safeStyle = sanitizeStyle(rawStyle);
-      if (!safeStyle) return `<${tag}>`;
+      if (tag === "a") {
+        const rawHref = extractAttributeValue(String(attributes ?? ""), "href");
+        const safeHref = sanitizeHref(rawHref);
+        if (safeHref) {
+          safeAttributes.push(`href="${escapeHtmlAttribute(safeHref)}"`);
+        }
 
-      return `<${tag} style="${escapeHtmlAttribute(safeStyle)}">`;
+        const rawTarget = extractAttributeValue(String(attributes ?? ""), "target");
+        if (rawTarget === "_blank") {
+          safeAttributes.push('target="_blank"');
+          safeAttributes.push('rel="noopener noreferrer"');
+        }
+      }
+
+      if (tag === "img") {
+        const rawSrc = extractAttributeValue(String(attributes ?? ""), "src");
+        const safeSrc = sanitizeSrc(rawSrc);
+        if (safeSrc) {
+          safeAttributes.push(`src="${escapeHtmlAttribute(safeSrc)}"`);
+        } else {
+          return "";
+        }
+
+        const rawAlt = extractAttributeValue(String(attributes ?? ""), "alt");
+        if (rawAlt) {
+          safeAttributes.push(`alt="${escapeHtmlAttribute(rawAlt)}"`);
+        }
+
+        const rawTitle = extractAttributeValue(String(attributes ?? ""), "title");
+        if (rawTitle) {
+          safeAttributes.push(`title="${escapeHtmlAttribute(rawTitle)}"`);
+        }
+
+        const rawWidth = extractAttributeValue(String(attributes ?? ""), "width");
+        const rawHeight = extractAttributeValue(String(attributes ?? ""), "height");
+        if (isValidSizeToken(rawWidth)) {
+          safeAttributes.push(`width="${escapeHtmlAttribute(rawWidth)}"`);
+        }
+        if (isValidSizeToken(rawHeight)) {
+          safeAttributes.push(`height="${escapeHtmlAttribute(rawHeight)}"`);
+        }
+      }
+
+      const className = sanitizeClassName(
+        extractAttributeValue(String(attributes ?? ""), "class"),
+      );
+      if (className) {
+        safeAttributes.push(`class="${escapeHtmlAttribute(className)}"`);
+      }
+
+      if (safeAttributes.length === 0) return `<${tag}>`;
+      return `<${tag} ${safeAttributes.join(" ")}>`;
     },
   );
 }
@@ -134,6 +229,84 @@ function extractStyleAttribute(attributes: string): string {
   );
   if (!styleMatch) return "";
   return (styleMatch[1] ?? styleMatch[2] ?? styleMatch[3] ?? "").trim();
+}
+
+function extractAttributeValue(attributes: string, attributeName: string): string {
+  if (!attributes) return "";
+  const attributeRe = new RegExp(
+    `\\b${attributeName}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s"'=<>\\\`]+))`,
+    "i",
+  );
+  const match = attributes.match(attributeRe);
+  if (!match) return "";
+  return (match[1] ?? match[2] ?? match[3] ?? "").trim();
+}
+
+function sanitizeHref(rawHref: string): string {
+  if (!rawHref) return "";
+  const href = rawHref.trim();
+  const lowered = href.toLowerCase();
+
+  if (
+    lowered.startsWith("javascript:") ||
+    lowered.startsWith("data:") ||
+    lowered.startsWith("vbscript:")
+  ) {
+    return "";
+  }
+
+  if (
+    lowered.startsWith("http://") ||
+    lowered.startsWith("https://") ||
+    lowered.startsWith("mailto:") ||
+    lowered.startsWith("tel:") ||
+    href.startsWith("/") ||
+    href.startsWith("#")
+  ) {
+    return href;
+  }
+
+  return "";
+}
+
+function sanitizeSrc(rawSrc: string): string {
+  if (!rawSrc) return "";
+  const src = rawSrc.trim();
+  const lowered = src.toLowerCase();
+
+  if (
+    lowered.startsWith("javascript:") ||
+    lowered.startsWith("data:") ||
+    lowered.startsWith("vbscript:")
+  ) {
+    return "";
+  }
+
+  if (
+    lowered.startsWith("http://") ||
+    lowered.startsWith("https://") ||
+    src.startsWith("/")
+  ) {
+    return src;
+  }
+
+  return "";
+}
+
+function sanitizeClassName(rawClass: string): string {
+  if (!rawClass) return "";
+  const safe = rawClass
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter(Boolean)
+    .filter((token) => /^[a-zA-Z0-9_-]+$/.test(token))
+    .slice(0, 24);
+  return safe.join(" ");
+}
+
+function isValidSizeToken(raw: string): boolean {
+  if (!raw) return false;
+  return /^[0-9]{1,4}(%|px)?$/.test(raw.trim());
 }
 
 function escapeHtmlAttribute(value: string): string {

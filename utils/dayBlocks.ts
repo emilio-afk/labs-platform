@@ -39,6 +39,7 @@ export type DayBlock = {
 type DayContentPayload = {
   version: 2;
   blocks: DayBlock[];
+  discussionPrompt?: string;
 };
 
 function createId(prefix: string): string {
@@ -112,13 +113,23 @@ export function extractYouTubeVideoId(url: string | null | undefined): string | 
   return match && match[2].length === 11 ? match[2] : null;
 }
 
-export function serializeDayBlocks(blocks: DayBlock[]): string {
+export function serializeDayBlocks(
+  blocks: DayBlock[],
+  options?: { discussionPrompt?: string | null },
+): string {
   const cleanBlocks = blocks.map((block) => sanitizeBlock(block));
+  const discussionPrompt =
+    typeof options?.discussionPrompt === "string"
+      ? options.discussionPrompt.trim()
+      : "";
 
   const payload: DayContentPayload = {
     version: 2,
     blocks: cleanBlocks,
   };
+  if (discussionPrompt) {
+    payload.discussionPrompt = discussionPrompt;
+  }
 
   return JSON.stringify(payload);
 }
@@ -154,6 +165,33 @@ export function parseDayBlocks(
   }
 
   return blocks;
+}
+
+export function parseDayDiscussionPrompt(
+  content: string | null | undefined,
+): string {
+  if (!content) return "";
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    return "";
+  }
+
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return "";
+  }
+
+  const payload = parsed as Record<string, unknown>;
+  const candidate =
+    typeof payload.discussionPrompt === "string"
+      ? payload.discussionPrompt
+      : typeof payload.discussion_prompt === "string"
+        ? payload.discussion_prompt
+        : "";
+
+  return candidate.trim();
 }
 
 function sanitizeBlock(block: DayBlock): DayBlock {

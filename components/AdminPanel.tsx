@@ -6,6 +6,7 @@ import {
   createChecklistItem,
   createQuizQuestion,
   parseDayBlocks,
+  parseDayDiscussionPrompt,
   serializeDayBlocks,
   getDefaultDayBlockGroup,
   type DayBlock,
@@ -175,6 +176,7 @@ export default function AdminPanel({
   );
   const [dayNumber, setDayNumber] = useState(1);
   const [dayTitle, setDayTitle] = useState("");
+  const [dayDiscussionPrompt, setDayDiscussionPrompt] = useState("");
   const [blocks, setBlocks] = useState<DayBlock[]>([createBlock("text")]);
   const [dayMsg, setDayMsg] = useState("");
   const [days, setDays] = useState<AdminDay[]>([]);
@@ -987,7 +989,9 @@ export default function AdminPanel({
       day_number: dayNumber,
       title: dayTitle,
       video_url: primaryVideoBlock?.url ?? firstVideoBlock?.url ?? null,
-      content: serializeDayBlocks(effectiveBlocks),
+      content: serializeDayBlocks(effectiveBlocks, {
+        discussionPrompt: dayDiscussionPrompt,
+      }),
     };
     const { error } = editingDayId
       ? await supabase.from("days").update(payload).eq("id", editingDayId)
@@ -1008,6 +1012,7 @@ export default function AdminPanel({
     } else {
       setDayMsg("Dia guardado correctamente");
       setDayTitle("");
+      setDayDiscussionPrompt("");
       commitBlocks([createBlock("text")], { skipHistory: true });
       clearBlockHistory();
       setDayNumber((prev) => prev + 1);
@@ -1020,6 +1025,7 @@ export default function AdminPanel({
     setEditingDayId(null);
     setDayMsg("");
     setDayTitle("");
+    setDayDiscussionPrompt("");
     commitBlocks([createBlock("text")], { skipHistory: true });
     clearBlockHistory();
     setDayBlocksViewPreset("all");
@@ -1030,6 +1036,7 @@ export default function AdminPanel({
     setEditingDayId(day.id);
     setDayNumber(day.day_number);
     setDayTitle(day.title);
+    setDayDiscussionPrompt(parseDayDiscussionPrompt(day.content));
     const parsedBlocks = parseDayBlocks(day.content, day.video_url);
     commitBlocks(parsedBlocks.length > 0 ? parsedBlocks : [createBlock("text")], {
       skipHistory: true,
@@ -1289,6 +1296,7 @@ export default function AdminPanel({
     setDays(nextDays);
     setEditingDayId(null);
     setDayTitle("");
+    setDayDiscussionPrompt("");
     commitBlocks([createBlock("text")], { skipHistory: true });
     clearBlockHistory();
     setDayNumber(getNextDayNumber(nextDays));
@@ -1441,6 +1449,7 @@ export default function AdminPanel({
     setEditingDayId(null);
     setDayMsg("");
     setDayTitle("");
+    setDayDiscussionPrompt("");
     commitBlocks([createBlock("text")], { skipHistory: true });
     clearBlockHistory();
     setDayNumber(1);
@@ -2024,6 +2033,22 @@ export default function AdminPanel({
                         required
                       />
                     </div>
+                  </div>
+
+                  <div>
+                    <label className="text-xs text-gray-400">
+                      Prompt de discusión del foro (opcional)
+                    </label>
+                    <textarea
+                      value={dayDiscussionPrompt}
+                      onChange={(e) => setDayDiscussionPrompt(e.target.value)}
+                      placeholder="Ej: ¿Qué aplicarías mañana de este día y por qué?"
+                      rows={3}
+                      className="mt-1 w-full rounded bg-black border border-gray-600 p-2 text-sm"
+                    />
+                    <p className="mt-1 text-[11px] text-gray-500">
+                      Si lo dejas vacío, el foro usará un prompt automático.
+                    </p>
                   </div>
 
                   <div className="border border-gray-700 rounded-lg p-4 space-y-4 bg-gray-900/60">

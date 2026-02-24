@@ -3,6 +3,7 @@
 import {
   extractYouTubeVideoId,
   parseDayBlocks,
+  parseDayDiscussionPrompt,
   type DayBlock,
 } from "@/utils/dayBlocks";
 import { sanitizeRichText, stripRichText } from "@/utils/richText";
@@ -20,6 +21,7 @@ type DayContent = {
 };
 
 type DayLocalState = {
+  notes: string;
   checklistSelections: Record<string, string[]>;
   quizAnswers: Record<string, Record<string, number>>;
 };
@@ -33,6 +35,7 @@ type CloudSyncStatus =
 
 type DayStateApiResponse = {
   state?: {
+    notes?: unknown;
     checklistSelections?: unknown;
     quizAnswers?: unknown;
   } | null;
@@ -40,6 +43,7 @@ type DayStateApiResponse = {
 };
 
 const EMPTY_DAY_STATE: DayLocalState = {
+  notes: "",
   checklistSelections: {},
   quizAnswers: {},
 };
@@ -60,6 +64,10 @@ export default function LabContent({
   const blocks = useMemo(
     () => parseDayBlocks(currentDay.content, currentDay.video_url),
     [currentDay.content, currentDay.video_url],
+  );
+  const customDiscussionPrompt = useMemo(
+    () => parseDayDiscussionPrompt(currentDay.content),
+    [currentDay.content],
   );
   const primaryResourceBlock = useMemo(
     () => findPrimaryResourceBlock(blocks),
@@ -98,6 +106,9 @@ export default function LabContent({
 
   const [checklistSelections, setChecklistSelections] = useState(
     initialLocalStateRef.current.checklistSelections,
+  );
+  const [challengeNotes, setChallengeNotes] = useState(
+    initialLocalStateRef.current.notes,
   );
   const [quizAnswers, setQuizAnswers] = useState(
     initialLocalStateRef.current.quizAnswers,
@@ -140,6 +151,7 @@ export default function LabContent({
 
         if (payload.state) {
           const normalizedState = normalizeDayState(payload.state);
+          setChallengeNotes(normalizedState.notes);
           setChecklistSelections(normalizedState.checklistSelections);
           setQuizAnswers(normalizedState.quizAnswers);
         }
@@ -170,6 +182,7 @@ export default function LabContent({
     if (typeof window === "undefined") return;
 
     const payload: DayLocalState = {
+      notes: challengeNotes,
       checklistSelections,
       quizAnswers,
     };
@@ -198,6 +211,7 @@ export default function LabContent({
     };
   }, [
     bootCompleted,
+    challengeNotes,
     checklistSelections,
     currentDay.day_number,
     labId,
@@ -280,7 +294,8 @@ export default function LabContent({
       return !isRepeatedSummary;
     });
   }, [normalizedTakeaways, resourceBlocks, showTakeawayPanel]);
-  const discussionPrompt = buildDiscussionPrompt(challengeBlocks);
+  const discussionPrompt =
+    customDiscussionPrompt || buildDiscussionPrompt(challengeBlocks);
 
   const resources = blocks.filter(
     (block) => block.type === "file" && Boolean(block.url?.trim()),
@@ -342,12 +357,17 @@ export default function LabContent({
   const hasQuizInteraction = Object.values(quizAnswers).some(
     (answersByQuestion) => Object.keys(answersByQuestion).length > 0,
   );
+  const hasChallengeNotes = challengeNotes.trim().length > 0;
   const hasChallengeWork =
     showChallengeSection || checklistBlocks.length > 0 || quizBlocks.length > 0;
   const hasForumStep = !previewMode;
   const videoStepDone = videoDone || !requiresWatch;
   const challengeStepDone =
-    !hasChallengeWork || completedChecklistItems > 0 || hasQuizInteraction || hasUserForumComment;
+    !hasChallengeWork ||
+    completedChecklistItems > 0 ||
+    hasQuizInteraction ||
+    hasChallengeNotes ||
+    hasUserForumComment;
   const forumStepDone = !hasForumStep || hasUserForumComment;
 
   const scrollToSection = useCallback((id: string) => {
@@ -844,6 +864,22 @@ export default function LabContent({
                     )}
                   </div>
 
+                  <div className="mt-4 rounded-lg border border-[var(--ast-mint)]/35 bg-[rgba(0,73,44,0.16)] p-4">
+                    <p className="text-xs uppercase tracking-wider text-[var(--ast-mint)]/90">
+                      Tu respuesta del reto
+                    </p>
+                    <textarea
+                      value={challengeNotes}
+                      onChange={(e) => setChallengeNotes(e.target.value)}
+                      placeholder="Escribe aquí tu respuesta o reflexión del reto de hoy..."
+                      rows={5}
+                      className="mt-2 w-full rounded-lg border border-[var(--ast-mint)]/35 bg-black/30 p-3 text-sm text-gray-100 outline-none focus:border-[var(--ast-mint)]"
+                    />
+                    <p className="mt-1 text-[11px] text-[#9bcfc0]">
+                      Se guarda automáticamente para este día.
+                    </p>
+                  </div>
+
                   {!showResourceSection && (
                     <div className="mt-6 flex justify-end">
                       {renderProgressButton()}
@@ -1214,9 +1250,15 @@ function normalizeDayState(raw: unknown): DayLocalState {
   const data = raw as Record<string, unknown>;
 
   return {
+    notes: normalizeNotes(data.notes),
     checklistSelections: normalizeChecklistSelections(data.checklistSelections),
     quizAnswers: normalizeQuizAnswers(data.quizAnswers),
   };
+}
+
+function normalizeNotes(raw: unknown): string {
+  if (typeof raw !== "string") return "";
+  return raw.slice(0, 20000);
 }
 
 function normalizeChecklistSelections(raw: unknown): Record<string, string[]> {
@@ -1399,6 +1441,7 @@ async function persistCloudState({
       body: JSON.stringify({
         labId,
         dayNumber,
+        notes: payload.notes,
         checklistSelections: payload.checklistSelections,
         quizAnswers: payload.quizAnswers,
       }),

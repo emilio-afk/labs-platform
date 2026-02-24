@@ -30,6 +30,9 @@ export default function Forum({
   const [isAdmin, setIsAdmin] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const supabase = useMemo(() => createClient(), []);
+  const hasCustomPrompt = Boolean(discussionPrompt?.trim());
+  const resolvedPrompt =
+    discussionPrompt?.trim() || "Comparte algo que hayas aprendido el día de hoy.";
 
   useEffect(() => {
     let active = true;
@@ -124,17 +127,19 @@ export default function Forum({
               Prompt de discusión
             </p>
             <p className="mt-1 text-sm text-gray-100">
-              {discussionPrompt || "Comparte qué aplicaste hoy y qué mejorarás mañana."}
+              {resolvedPrompt}
             </p>
-            <ul className="mt-2 space-y-1 text-xs text-gray-400">
-              <li>1. Contexto breve del caso real.</li>
-              <li>2. Prompt o enfoque que usaste.</li>
-              <li>3. Resultado y siguiente mejora.</li>
-            </ul>
+            {!hasCustomPrompt && (
+              <ul className="mt-2 space-y-1 text-xs text-gray-400">
+                <li>1. ¿Qué aprendiste hoy?</li>
+                <li>2. ¿Cómo lo aplicarías en tu trabajo o estudio?</li>
+                <li>3. ¿Qué duda o siguiente paso te llevas?</li>
+              </ul>
+            )}
           </div>
           <textarea
             className="w-full p-4 rounded-lg bg-black/30 border border-gray-700 text-white focus:border-green-500 outline-none"
-            placeholder="Comparte tu resultado del reto..."
+            placeholder="Comparte tu aprendizaje del día..."
             value={newComment}
             onChange={(e) => setNewComment(e.target.value)}
           />
