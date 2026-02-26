@@ -50,8 +50,8 @@ export default function ProgressButton({
         disabled={completed || saving}
         className={`px-4 py-1.5 rounded-md text-xs font-semibold transition ${
           completed
-            ? "bg-green-700 text-white border border-green-400/70"
-            : "bg-transparent border border-gray-600 text-gray-400 hover:border-green-500 hover:text-green-500"
+            ? "border border-[var(--ast-mint)]/65 bg-[rgba(4,73,44,0.66)] text-[var(--ast-bone)]"
+            : "bg-transparent border border-[var(--ast-sky)]/35 text-[var(--ast-sky)]/90 hover:border-[var(--ast-mint)] hover:text-[var(--ast-mint)]"
         } ${saving ? "opacity-70 cursor-not-allowed" : ""}`}
       >
         {completed ? "Completado" : saving ? "Guardando..." : "Marcar como terminado"}

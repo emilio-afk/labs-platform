@@ -20,21 +20,67 @@
   --ast-black: #262626;
   --ast-white: #ffffff;
 
-  --background: var(--ast-black);
-  --foreground: var(--ast-white);
+  --ui-bg: #030a19;
+  --ui-surface: #0b1633;
+  --ui-surface-soft: #13234a;
+  --ui-text: #edf4ff;
+  --ui-muted: #9cb2d7;
+  --ui-primary: #0a56c6;
+  --ui-secondary: #b9d6fe;
+  --ui-accent: #04a45a;
+  --ui-border: #355183;
+  --ui-success: #27c06d;
+
+  --background: var(--ui-bg);
+  --foreground: var(--ui-text);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
+  --font-sans: var(--font-dm-sans);
   --font-mono: var(--font-geist-mono);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+  font-family: var(--font-dm-sans), Arial, Helvetica, sans-serif;
+}
+
+.ast-admin-theme :where(input, textarea, select) {
+  border-color: rgba(185, 214, 254, 0.34);
+  background: rgba(2, 9, 24, 0.76);
+  color: #edf4ff;
+}
+
+.ast-admin-theme :where(input, textarea, select)::placeholder {
+  color: rgba(185, 214, 254, 0.62);
+}
+
+.ast-admin-theme :where(input, textarea, select):focus {
+  border-color: rgba(4, 164, 90, 0.75);
+  outline: none;
+}
+
+.ast-admin-theme :where(.text-gray-500) {
+  color: #8ea5cb !important;
+}
+
+.ast-admin-theme :where(.text-gray-400) {
+  color: #b8cae9 !important;
+}
+
+.ast-admin-theme :where(.text-gray-300) {
+  color: #d8e5fb !important;
+}
+
+.ast-admin-theme :where([class*="border-gray-"]) {
+  border-color: rgba(185, 214, 254, 0.32) !important;
+}
+
+.ast-admin-theme :where([class*="bg-gray-"], [class*="bg-black"]) {
+  background-color: rgba(2, 9, 24, 0.76) !important;
 }
 
 .ast-constellation-glow {

@@ -258,36 +258,36 @@ export default function CartCheckoutPanel({ labs }: CartCheckoutPanelProps) {
   };
 
   return (
-    <section className="rounded-2xl border border-[var(--ast-sky)]/30 bg-[linear-gradient(180deg,rgba(10,86,198,0.16),rgba(1,25,99,0.25))] p-5 md:p-6 space-y-4">
+    <section className="space-y-4 rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface)] p-5 shadow-[0_16px_30px_rgba(1,7,22,0.45)] md:p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-xl md:text-2xl font-bold text-[var(--ast-mint)]">
+          <h2 className="font-[family-name:var(--font-space-grotesk)] text-xl font-bold text-[var(--ui-text)] md:text-2xl">
             Carrito
           </h2>
-          <p className="text-xs md:text-sm text-[var(--ast-bone)]/80">
+          <p className="text-xs text-[var(--ui-muted)] md:text-sm">
             Compra varios labs en un solo pago.
           </p>
         </div>
-        <div className="rounded-full border border-[var(--ast-sky)]/40 px-3 py-1 text-xs text-[var(--ast-sky)]">
+        <div className="rounded-full border border-[var(--ui-border)] bg-[var(--ui-surface-soft)] px-3 py-1 text-xs text-[var(--ui-text)]">
           {selectedLabs.length} {selectedLabs.length === 1 ? "lab" : "labs"}
         </div>
       </div>
 
       {selectedLabs.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-[var(--ast-sky)]/35 bg-[var(--ast-indigo)]/20 px-4 py-3 text-sm text-[var(--ast-bone)]/80">
+        <div className="rounded-lg border border-dashed border-[var(--ui-border)] bg-[var(--ui-surface-soft)] px-4 py-3 text-sm text-[var(--ui-muted)]">
           Tu carrito está vacío. Agrega labs desde las tarjetas bloqueadas.
         </div>
       ) : (
         <>
-          <div className="rounded-lg border border-[var(--ast-sky)]/25 bg-[var(--ast-indigo)]/20 p-3 space-y-2">
+          <div className="space-y-2 rounded-lg border border-[var(--ui-border)] bg-[var(--ui-surface-soft)] p-3">
             {selectedLines.map((line) => (
               <div
                 key={line.id}
-                className="flex items-center justify-between gap-3 rounded-md bg-black/15 px-3 py-2"
+                className="flex items-center justify-between gap-3 rounded-md border border-[var(--ui-border)] bg-[rgba(2,9,24,0.7)] px-3 py-2"
               >
                 <div>
-                  <p className="text-sm font-semibold">{line.title}</p>
-                  <p className="text-xs text-[var(--ast-bone)]/75">
+                  <p className="text-sm font-semibold text-[var(--ui-text)]">{line.title}</p>
+                  <p className="text-xs text-[var(--ui-muted)]">
                     {line.amountCents == null
                       ? "Sin precio en esta moneda"
                       : formatMoney(line.amountCents, currency)}
@@ -298,7 +298,7 @@ export default function CartCheckoutPanel({ labs }: CartCheckoutPanelProps) {
                   onClick={() => {
                     toggleCartLab(line.id);
                   }}
-                  className="rounded-md border border-[var(--ast-coral)]/50 px-2 py-1 text-xs text-[var(--ast-coral)] hover:bg-[var(--ast-rust)]/35"
+                  className="rounded-md border border-[var(--ast-coral)]/45 px-2 py-1 text-xs text-[var(--ast-yellow)] transition hover:bg-[rgba(246,109,58,0.18)]"
                 >
                   Quitar
                 </button>
@@ -310,7 +310,7 @@ export default function CartCheckoutPanel({ labs }: CartCheckoutPanelProps) {
             <select
               value={currency}
               onChange={(event) => setCurrency(event.target.value as Currency)}
-              className="rounded-lg border border-[var(--ast-sky)]/25 bg-[var(--ast-indigo)]/35 px-3 py-2 text-xs"
+              className="rounded-lg border border-[var(--ui-border)] bg-[rgba(2,9,24,0.7)] px-3 py-2 text-xs text-[var(--ui-text)]"
             >
               <option value="USD" disabled={!availableCurrencies.includes("USD")}>
                 USD
@@ -324,32 +324,32 @@ export default function CartCheckoutPanel({ labs }: CartCheckoutPanelProps) {
               value={coupon}
               onChange={(event) => handleCouponChange(event.target.value)}
               placeholder="Cupón de descuento"
-              className="flex-1 min-w-[180px] rounded-lg border border-[var(--ast-sky)]/25 bg-[var(--ast-indigo)]/35 px-3 py-2 text-xs"
+              className="min-w-[180px] flex-1 rounded-lg border border-[var(--ui-border)] bg-[rgba(2,9,24,0.7)] px-3 py-2 text-xs text-[var(--ui-text)] placeholder:text-[var(--ui-muted)]"
             />
             <button
               type="button"
               onClick={() => void applyCoupon()}
               disabled={isApplyingCoupon}
-              className="rounded-lg border border-[var(--ast-sky)]/35 px-3 py-2 text-xs font-semibold text-[var(--ast-sky)] hover:bg-[var(--ast-sky)]/10 transition disabled:opacity-60"
+              className="rounded-lg border border-[var(--ui-border)] bg-[rgba(2,9,24,0.7)] px-3 py-2 text-xs font-semibold text-[var(--ui-text)] transition hover:border-[var(--ui-secondary)] hover:bg-[var(--ui-surface-soft)] disabled:opacity-60"
             >
               {isApplyingCoupon ? "Aplicando..." : "Aplicar"}
             </button>
           </div>
 
           <div
-            className={`rounded-lg border border-[var(--ast-sky)]/25 bg-[var(--ast-indigo)]/25 px-3 py-2 text-xs space-y-1 ${amountPulse ? "animate-pulse" : ""}`}
+            className={`space-y-1 rounded-lg border border-[var(--ui-border)] bg-[var(--ui-surface-soft)] px-3 py-2 text-xs ${amountPulse ? "animate-pulse" : ""}`}
           >
-            <div className="flex items-center justify-between text-[var(--ast-bone)]/75">
+            <div className="flex items-center justify-between text-[var(--ui-muted)]">
               <span>Precio base</span>
               <span>{formatMoney(pricing.originalAmountCents, currency)}</span>
             </div>
             {pricing.discountCents > 0 && (
-              <div className="flex items-center justify-between text-[var(--ast-mint)]">
+              <div className="flex items-center justify-between text-[var(--ui-success)]">
                 <span>Descuento</span>
                 <span>-{formatMoney(pricing.discountCents, currency)}</span>
               </div>
             )}
-            <div className="flex items-center justify-between text-[var(--ast-bone)] font-bold pt-1 border-t border-white/10">
+            <div className="flex items-center justify-between border-t border-[var(--ui-border)] pt-1 font-bold text-[var(--ui-text)]">
               <span>Total</span>
               <span>{formatMoney(pricing.finalAmountCents, currency)}</span>
             </div>
@@ -359,7 +359,7 @@ export default function CartCheckoutPanel({ labs }: CartCheckoutPanelProps) {
             type="button"
             disabled={isLoading || availableCurrencies.length === 0 || missingPriceLabs.length > 0}
             onClick={() => void startCheckout()}
-            className="w-full rounded-lg bg-[var(--ast-mint)] text-[var(--ast-black)] py-2 text-sm font-bold hover:bg-[var(--ast-forest)] transition disabled:opacity-70"
+            className="w-full rounded-lg bg-[var(--ui-accent)] py-2 text-sm font-semibold text-[var(--ast-black)] transition hover:bg-[var(--ast-forest)] disabled:opacity-70"
           >
             {isLoading
               ? "Redirigiendo a pago..."
@@ -371,10 +371,10 @@ export default function CartCheckoutPanel({ labs }: CartCheckoutPanelProps) {
           <p
             className={`text-[11px] ${
               messageTone === "success"
-                ? "text-[var(--ast-mint)]"
+                ? "text-[var(--ui-success)]"
                 : messageTone === "error"
-                  ? "text-[var(--ast-coral)]"
-                  : "text-[var(--ast-bone)]/70"
+                  ? "text-[var(--ui-accent)]"
+                  : "text-[var(--ui-muted)]"
             }`}
           >
             {message ||

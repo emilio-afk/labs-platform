@@ -33,10 +33,10 @@ export default function PaymentStatusNotice({
 
   return (
     <div
-      className={`mb-4 rounded-lg px-4 py-3 text-sm text-[var(--ast-bone)] transition-opacity duration-300 ${
+      className={`mb-4 rounded-lg px-4 py-3 text-sm text-[var(--ui-text)] transition-opacity duration-300 ${
         tone === "success"
-          ? "border border-[var(--ast-mint)]/45 bg-[var(--ast-forest)]/25"
-          : "border border-[var(--ast-coral)]/50 bg-[var(--ast-rust)]/30"
+          ? "border border-emerald-400/45 bg-emerald-950/30"
+          : "border border-[var(--ast-coral)]/45 bg-[rgba(136,31,0,0.28)]"
       }`}
     >
       {message}

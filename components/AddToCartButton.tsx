@@ -31,8 +31,8 @@ export default function AddToCartButton({ labId }: AddToCartButtonProps) {
       }}
       className={`w-full rounded-lg py-2 text-sm font-semibold transition ${
         inCart
-          ? "border border-[var(--ast-sky)]/45 bg-[var(--ast-indigo)]/40 text-[var(--ast-sky)] hover:bg-[var(--ast-indigo)]/65"
-          : "border border-[var(--ast-mint)]/60 bg-[var(--ast-mint)]/15 text-[var(--ast-mint)] hover:bg-[var(--ast-mint)]/25"
+          ? "border border-[var(--ui-border)] bg-[var(--ui-surface-soft)] text-[var(--ui-text)] hover:bg-[rgba(185,214,254,0.14)]"
+          : "border border-[var(--ast-mint)]/55 bg-[rgba(4,164,90,0.14)] text-[var(--ast-mint)] hover:bg-[rgba(4,164,90,0.22)]"
       }`}
     >
       {inCart ? "Quitar del carrito" : "Agregar al carrito"}

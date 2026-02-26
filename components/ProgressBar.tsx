@@ -19,7 +19,7 @@ export default function ProgressBar({
         </span>
         <span className="text-lg font-black text-white">{percentage}%</span>
       </div>
-      <div className="h-1.5 w-full overflow-hidden rounded-full border border-white/5 bg-gray-800">
+      <div className="h-1.5 w-full overflow-hidden rounded-full border border-[var(--ast-sky)]/25 bg-[rgba(4,12,31,0.7)]">
         <div
           className="h-full bg-gradient-to-r from-[var(--ast-emerald)] to-[var(--ast-mint)] transition-all duration-700 ease-out"
           style={{ width: `${percentage}%` }}

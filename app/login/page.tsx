@@ -176,13 +176,13 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center bg-[var(--ast-black)] text-[var(--ast-white)] p-4">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(10,86,198,0.35),transparent_45%),radial-gradient(circle_at_85%_20%,rgba(4,164,90,0.18),transparent_30%),radial-gradient(circle_at_bottom,rgba(1,25,99,0.6),transparent_55%)]" />
+    <div className="relative flex min-h-screen items-center justify-center bg-[var(--ui-bg)] px-4 py-8 text-[var(--ui-text)]">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(10,86,198,0.36),transparent_42%),radial-gradient(circle_at_85%_20%,rgba(4,164,90,0.22),transparent_34%),linear-gradient(180deg,rgba(1,25,99,0.35),rgba(1,25,99,0.65))]" />
 
-      <div className="relative w-full max-w-lg rounded-2xl border border-[var(--ast-sky)]/35 bg-[linear-gradient(180deg,rgba(10,86,198,0.2),rgba(1,25,99,0.38))] backdrop-blur-sm p-7 space-y-5 shadow-2xl transition-all duration-300">
+      <div className="relative w-full max-w-lg space-y-5 rounded-2xl border border-[var(--ui-border)] bg-[linear-gradient(165deg,rgba(10,21,52,0.94),rgba(5,14,34,0.96))] p-7 shadow-[0_24px_44px_rgba(2,7,21,0.5)] transition-all duration-300">
         <div className="flex justify-center">
           <Image
-            src="/logo-astrolab-light.png"
+            src="/logo-astrolab-cobalt.png"
             alt="Astrolab"
             width={210}
             height={39}
@@ -190,18 +190,18 @@ export default function LoginPage() {
             priority
           />
         </div>
-        <h1 className="text-2xl font-black text-center tracking-tight text-[var(--ast-bone)]">
+        <h1 className="text-center font-[family-name:var(--font-space-grotesk)] text-2xl font-bold tracking-tight text-[var(--ui-text)]">
           Bienvenido
         </h1>
-        <p className="text-center text-sm text-[var(--ast-bone)]/80">{subtitle}</p>
+        <p className="text-center text-sm text-[var(--ui-muted)]">{subtitle}</p>
 
-        <div className="grid grid-cols-3 gap-2 rounded-xl bg-[var(--ast-indigo)]/35 p-1 border border-[var(--ast-sky)]/25">
+        <div className="grid grid-cols-3 gap-2 rounded-xl border border-[var(--ui-border)] bg-[rgba(6,18,43,0.8)] p-1">
           <button
             type="button"
             className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${
               mode === "login"
-                ? "bg-[var(--ast-mint)] text-[var(--ast-black)]"
-                : "text-[var(--ast-bone)]/80 hover:bg-[var(--ast-sky)]/10"
+                ? "bg-[var(--ui-primary)] text-white"
+                : "text-[var(--ui-secondary)]/85 hover:bg-[rgba(185,214,254,0.12)] hover:text-[var(--ui-text)]"
             }`}
             onClick={() => setMode("login")}
           >
@@ -211,8 +211,8 @@ export default function LoginPage() {
             type="button"
             className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${
               mode === "signup"
-                ? "bg-[var(--ast-mint)] text-[var(--ast-black)]"
-                : "text-[var(--ast-bone)]/80 hover:bg-[var(--ast-sky)]/10"
+                ? "bg-[var(--ui-primary)] text-white"
+                : "text-[var(--ui-secondary)]/85 hover:bg-[rgba(185,214,254,0.12)] hover:text-[var(--ui-text)]"
             }`}
             onClick={() => setMode("signup")}
           >
@@ -222,8 +222,8 @@ export default function LoginPage() {
             type="button"
             className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${
               mode === "recover"
-                ? "bg-[var(--ast-mint)] text-[var(--ast-black)]"
-                : "text-[var(--ast-bone)]/80 hover:bg-[var(--ast-sky)]/10"
+                ? "bg-[var(--ui-primary)] text-white"
+                : "text-[var(--ui-secondary)]/85 hover:bg-[rgba(185,214,254,0.12)] hover:text-[var(--ui-text)]"
             }`}
             onClick={() => setMode("recover")}
           >
@@ -251,7 +251,7 @@ export default function LoginPage() {
               <button
                 type="button"
                 onClick={() => setMode("recover")}
-                className="text-sm text-[var(--ast-sky)] hover:text-[var(--ast-mint)] transition"
+                className="text-sm text-[var(--ui-secondary)] transition hover:text-[var(--ui-accent)]"
                 disabled={loading}
               >
                 Olvidé mi contraseña
@@ -327,7 +327,7 @@ export default function LoginPage() {
               onChange={setEmail}
               autoComplete="email"
             />
-            <p className="text-xs text-[var(--ast-bone)]/70">
+            <p className="text-xs text-[var(--ui-muted)]">
               Te enviaremos una liga para restablecer contraseña en una pantalla
               separada.
             </p>
@@ -345,10 +345,10 @@ export default function LoginPage() {
           <p
             className={`text-sm rounded-lg border px-3 py-2 ${
               messageType === "error"
-                ? "text-red-200 border-red-500/40 bg-red-950/30"
+                ? "border-red-400/45 bg-red-950/30 text-red-200"
                 : messageType === "success"
-                  ? "text-green-200 border-green-500/40 bg-green-950/30"
-                  : "text-blue-100 border-[var(--ast-sky)]/40 bg-[var(--ast-cobalt)]/30"
+                  ? "border-emerald-400/45 bg-emerald-950/30 text-emerald-200"
+                  : "border-[var(--ast-sky)]/45 bg-[rgba(10,86,198,0.24)] text-[var(--ast-sky)]"
             }`}
           >
             {message}
@@ -375,7 +375,7 @@ function Field({ type, placeholder, value, onChange, autoComplete }: FieldProps)
       value={value}
       onChange={(e) => onChange(e.target.value)}
       autoComplete={autoComplete}
-      className="w-full rounded-lg border border-[var(--ast-sky)]/20 bg-[var(--ast-indigo)]/30 p-3 text-white placeholder:text-[var(--ast-bone)]/45 focus:outline-none focus:ring-2 focus:ring-[var(--ast-mint)]/60 focus:border-transparent transition"
+      className="w-full rounded-lg border border-[var(--ui-border)] bg-[rgba(2,9,24,0.72)] p-3 text-[var(--ui-text)] placeholder:text-[var(--ui-muted)] transition focus:border-[var(--ui-accent)] focus:outline-none focus:ring-2 focus:ring-[var(--ui-accent)]/25"
       required={type !== "text" || !placeholder.toLowerCase().includes("opcional")}
     />
   );
@@ -401,12 +401,12 @@ function SubmitButton({
     <button
       type="submit"
       disabled={isDisabled}
-      className={`inline-flex items-center justify-center gap-2 rounded-full bg-[var(--ast-mint)] px-5 py-2.5 text-sm font-bold text-[var(--ast-black)] hover:bg-[var(--ast-forest)] transition disabled:opacity-60 ${
+      className={`inline-flex items-center justify-center gap-2 rounded-full bg-[var(--ui-accent)] px-5 py-2.5 text-sm font-semibold text-[var(--ast-black)] transition hover:bg-[var(--ast-forest)] disabled:opacity-60 ${
         fullWidth ? "w-full" : ""
       }`}
     >
       {loading && (
-        <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-black/30 border-t-black" />
+        <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
       )}
       {loading ? "Procesando..." : isDisabled && disabledLabel ? disabledLabel : label}
     </button>

@@ -117,7 +117,7 @@ export default function Forum({
   return (
     <div className="mt-4">
       {!authResolved ? (
-        <div className="mb-8 rounded-lg border border-gray-700 bg-black/30 px-4 py-3 text-sm text-gray-400">
+        <div className="mb-8 rounded-lg border border-[var(--ast-sky)]/30 bg-[rgba(4,12,31,0.72)] px-4 py-3 text-sm text-[#9fb3d6]">
           Cargando foro...
         </div>
       ) : user ? (
@@ -126,11 +126,11 @@ export default function Forum({
             <p className="text-xs uppercase tracking-wider text-[var(--ast-sky)]/80">
               Prompt de discusión
             </p>
-            <p className="mt-1 text-sm text-gray-100">
+            <p className="mt-1 text-sm text-[var(--ast-bone)]">
               {resolvedPrompt}
             </p>
             {!hasCustomPrompt && (
-              <ul className="mt-2 space-y-1 text-xs text-gray-400">
+              <ul className="mt-2 space-y-1 text-xs text-[#9fb3d6]">
                 <li>1. ¿Qué aprendiste hoy?</li>
                 <li>2. ¿Cómo lo aplicarías en tu trabajo o estudio?</li>
                 <li>3. ¿Qué duda o siguiente paso te llevas?</li>
@@ -138,20 +138,20 @@ export default function Forum({
             )}
           </div>
           <textarea
-            className="w-full p-4 rounded-lg bg-black/30 border border-gray-700 text-white focus:border-green-500 outline-none"
+            className="w-full rounded-lg border border-[var(--ast-sky)]/30 bg-[rgba(4,12,31,0.72)] p-4 text-[var(--ast-bone)] outline-none focus:border-[var(--ast-mint)]"
             placeholder="Comparte tu aprendizaje del día..."
             value={newComment}
             onChange={(e) => setNewComment(e.target.value)}
           />
           <button
             type="submit"
-            className="mt-2 bg-green-600 px-6 py-2 rounded-lg font-bold hover:bg-green-700 transition"
+            className="mt-2 rounded-lg bg-[var(--ast-mint)] px-6 py-2 font-bold text-[var(--ast-black)] transition hover:bg-[var(--ast-forest)]"
           >
             Publicar comentario
           </button>
         </form>
       ) : (
-        <p className="mb-8 text-gray-500 italic">
+        <p className="mb-8 text-[#90a5c8] italic">
           Debes iniciar sesión para comentar.
         </p>
       )}
@@ -160,32 +160,32 @@ export default function Forum({
         {comments.map((c) => (
           <div
             key={c.id}
-            className="bg-gray-900 p-4 rounded-lg border border-gray-800"
+            className="rounded-lg border border-[var(--ast-sky)]/30 bg-[rgba(4,12,31,0.76)] p-4"
           >
             <div className="flex justify-between items-center mb-2">
-              <span className="text-sm font-bold text-blue-400">
+              <span className="text-sm font-bold text-[var(--ast-sky)]">
                 {c.user_email}
               </span>
               <div className="flex items-center gap-3">
-                <span className="text-xs text-gray-600">
+                <span className="text-xs text-[#8ea4c7]">
                   {new Date(c.created_at).toLocaleDateString()}
                 </span>
                 {(isAdmin || user?.id === c.user_id) && (
                   <button
                     type="button"
                     onClick={() => void deleteComment(c.id)}
-                    className="text-xs px-2 py-1 rounded bg-red-900/60 hover:bg-red-800 text-red-100"
+                    className="rounded bg-red-950/45 px-2 py-1 text-xs text-red-200 transition hover:bg-red-900/60"
                   >
                     Borrar
                   </button>
                 )}
               </div>
             </div>
-            <p className="text-gray-300">{c.content}</p>
+            <p className="text-[#d9e7fc]">{c.content}</p>
           </div>
         ))}
         {comments.length === 0 && (
-          <p className="text-gray-600">
+          <p className="text-[#90a5c8]">
             Nadie ha comentado aún. ¡Sé el primero!
           </p>
         )}

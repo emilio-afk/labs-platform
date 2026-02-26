@@ -14,7 +14,7 @@ export default function LogoutButton() {
   return (
     <button
       onClick={handleLogout}
-      className="text-sm font-medium text-[var(--ast-sky)] hover:text-[var(--ast-mint)] transition"
+      className="text-sm font-semibold text-[var(--ui-secondary)] transition hover:text-[var(--ast-mint)]"
     >
       Cerrar Sesión
     </button>

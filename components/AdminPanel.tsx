@@ -1461,18 +1461,24 @@ export default function AdminPanel({
   };
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white p-4 md:p-6 xl:p-8">
-      <div className="mx-auto w-full max-w-[1440px] space-y-10">
-        <div className="flex justify-between items-center border-b border-gray-700 pb-4">
-          <h1 className="text-3xl font-bold text-green-400">Panel de Admin</h1>
-          <div className="space-x-4">
+    <div className="ast-admin-theme relative isolate min-h-screen !bg-[#020617] p-4 text-slate-100 md:p-6 xl:p-8">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(10,86,198,0.3),transparent_30%),radial-gradient(circle_at_90%_10%,rgba(4,164,90,0.16),transparent_26%),linear-gradient(180deg,rgba(2,9,24,0.2),rgba(2,9,24,0.78))]" />
+      <div className="relative mx-auto w-full max-w-[1440px] space-y-10">
+        <div className="flex items-center justify-between rounded-2xl border border-[var(--ast-sky)]/35 bg-[rgba(4,12,31,0.88)] px-4 py-4 shadow-[0_14px_30px_rgba(2,6,23,0.52)]">
+          <h1 className="font-[family-name:var(--font-space-grotesk)] text-3xl font-bold text-slate-50">
+            Panel de Admin
+          </h1>
+          <div className="flex items-center gap-2">
             <button
               onClick={() => router.push("/")}
-              className="text-gray-400 hover:text-white"
+              className="rounded-full border border-slate-600 bg-slate-800 px-3 py-1.5 text-sm text-slate-100 transition hover:border-slate-500 hover:bg-slate-700"
             >
               Ir al Inicio
             </button>
-            <button onClick={handleLogout} className="text-red-400">
+            <button
+              onClick={handleLogout}
+              className="rounded-full border border-orange-400/50 bg-orange-500/12 px-3 py-1.5 text-sm text-orange-200 transition hover:bg-orange-500/22"
+            >
               Salir
             </button>
           </div>
@@ -1491,10 +1497,10 @@ export default function AdminPanel({
               key={tab.key}
               type="button"
               onClick={() => setActiveTab(tab.key as AdminTab)}
-              className={`px-3 py-1 rounded transition ${
+              className={`rounded-full px-3 py-1.5 font-semibold transition ${
                 activeTab === tab.key
-                  ? "bg-cyan-600 text-white"
-                  : "bg-gray-800 hover:bg-gray-700 text-gray-200"
+                  ? "border border-blue-300/80 bg-blue-600/75 text-white shadow-[0_0_0_1px_rgba(147,197,253,0.4)]"
+                  : "border border-slate-600 bg-slate-900 text-slate-100 hover:border-slate-500 hover:bg-slate-800"
               }`}
             >
               {tab.label}
@@ -1503,8 +1509,8 @@ export default function AdminPanel({
         </nav>
 
         {activeTab === "hero" && (
-          <section className="bg-gray-800 p-6 rounded-lg border border-gray-700">
-          <h2 className="text-xl font-bold mb-4 text-blue-400">
+          <section className="rounded-2xl border border-[var(--ast-sky)]/28 bg-[linear-gradient(160deg,rgba(9,18,44,0.96),rgba(4,11,30,0.96))] p-6 shadow-[0_18px_36px_rgba(1,7,22,0.5)]">
+          <h2 className="mb-4 font-[family-name:var(--font-space-grotesk)] text-xl font-bold text-blue-200">
             1. Hero de Inicio
           </h2>
           <form onSubmit={saveHeroSettings} className="space-y-4">
@@ -1535,8 +1541,8 @@ export default function AdminPanel({
         )}
 
         {activeTab === "labs" && (
-          <section className="bg-gray-800 p-6 rounded-lg border border-gray-700">
-          <h2 className="text-xl font-bold mb-4 text-blue-400">
+          <section className="rounded-2xl border border-[var(--ast-sky)]/28 bg-[linear-gradient(160deg,rgba(9,18,44,0.96),rgba(4,11,30,0.96))] p-6 shadow-[0_18px_36px_rgba(1,7,22,0.5)]">
+          <h2 className="mb-4 font-[family-name:var(--font-space-grotesk)] text-xl font-bold text-blue-200">
             2. Crear Nuevo Curso (Lab)
           </h2>
           <form onSubmit={createLab} className="space-y-4">
@@ -1914,8 +1920,8 @@ export default function AdminPanel({
         )}
 
         {activeTab === "days" && (
-          <section className="rounded-lg border border-gray-700 bg-gray-800 p-4 md:p-6">
-          <h2 className="text-xl font-bold mb-4 text-green-400">
+          <section className="rounded-2xl border border-white/15 bg-[linear-gradient(160deg,rgba(15,23,42,0.78),rgba(2,6,23,0.84))] p-4 shadow-[0_16px_34px_rgba(2,6,23,0.35)] md:p-6">
+          <h2 className="mb-4 font-[family-name:var(--font-space-grotesk)] text-xl font-bold text-emerald-200">
             3. Disenar Dias con Bloques de Contenido
           </h2>
 
@@ -2161,8 +2167,8 @@ export default function AdminPanel({
                           onClick={() => setDayBlocksViewPreset("resource")}
                           className={`rounded px-3 py-1 text-xs font-semibold transition ${
                             dayBlocksViewPreset === "resource"
-                              ? "border border-[var(--ast-sky)]/55 bg-[var(--ast-cobalt)]/25 text-[var(--ast-sky)]"
-                              : "border border-gray-700 bg-black/40 text-gray-300 hover:border-[var(--ast-sky)]/40"
+                              ? "border border-blue-300/60 bg-blue-500/20 text-blue-100"
+                              : "border border-gray-700 bg-black/40 text-gray-300 hover:border-blue-300/45"
                           }`}
                         >
                           Recurso principal ({resourceBlockCount})
@@ -2172,8 +2178,8 @@ export default function AdminPanel({
                           onClick={() => setDayBlocksViewPreset("challenge")}
                           className={`rounded px-3 py-1 text-xs font-semibold transition ${
                             dayBlocksViewPreset === "challenge"
-                              ? "border border-[var(--ast-mint)]/55 bg-[var(--ast-emerald)]/25 text-[var(--ast-mint)]"
-                              : "border border-gray-700 bg-black/40 text-gray-300 hover:border-[var(--ast-mint)]/40"
+                              ? "border border-emerald-300/55 bg-emerald-500/18 text-emerald-100"
+                              : "border border-gray-700 bg-black/40 text-gray-300 hover:border-emerald-300/45"
                           }`}
                         >
                           Reto del día ({challengeBlockCount})
@@ -2195,8 +2201,8 @@ export default function AdminPanel({
                         key={block.id}
                         className={`rounded-lg p-3 space-y-3 ${
                           blockGroup === "challenge"
-                            ? "border border-[var(--ast-mint)]/45 bg-[rgba(0,73,44,0.22)]"
-                            : "border border-[var(--ast-sky)]/35 bg-[rgba(1,25,99,0.18)]"
+                            ? "border border-emerald-300/45 bg-emerald-500/12"
+                            : "border border-blue-300/35 bg-blue-500/10"
                         }`}
                       >
                         <div className="space-y-2">
@@ -2210,7 +2216,7 @@ export default function AdminPanel({
                                   {getBlockTypeLabel(block.type)}
                                 </p>
                                 {blockGroup === "resource" && blockRole === "primary" && (
-                                  <span className="rounded-full border border-[var(--ast-yellow)]/50 bg-[var(--ast-rust)]/35 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--ast-yellow)]">
+                                  <span className="rounded-full border border-amber-300/50 bg-amber-500/18 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-100">
                                     Ruta
                                   </span>
                                 )}
@@ -2581,8 +2587,8 @@ export default function AdminPanel({
         )}
 
         {activeTab === "comments" && (
-          <section className="bg-gray-800 p-6 rounded-lg border border-gray-700">
-          <h2 className="text-xl font-bold mb-4 text-amber-400">
+          <section className="rounded-2xl border border-[var(--ast-sky)]/28 bg-[linear-gradient(160deg,rgba(9,18,44,0.96),rgba(4,11,30,0.96))] p-6 shadow-[0_18px_36px_rgba(1,7,22,0.5)]">
+          <h2 className="mb-4 font-[family-name:var(--font-space-grotesk)] text-xl font-bold text-amber-200">
             4. Moderacion de Comentarios
           </h2>
           {!selectedLab ? (
@@ -2652,8 +2658,8 @@ export default function AdminPanel({
         )}
 
         {activeTab === "users" && (
-          <section className="bg-gray-800 p-6 rounded-lg border border-gray-700">
-          <h2 className="text-xl font-bold mb-4 text-cyan-300">
+          <section className="rounded-2xl border border-[var(--ast-sky)]/28 bg-[linear-gradient(160deg,rgba(9,18,44,0.96),rgba(4,11,30,0.96))] p-6 shadow-[0_18px_36px_rgba(1,7,22,0.5)]">
+          <h2 className="mb-4 font-[family-name:var(--font-space-grotesk)] text-xl font-bold text-cyan-200">
             5. Gestión de Usuarios
           </h2>
 
@@ -2825,8 +2831,8 @@ export default function AdminPanel({
         )}
 
         {activeTab === "commerce" && (
-          <section className="bg-gray-800 p-6 rounded-lg border border-gray-700 space-y-6">
-            <h2 className="text-xl font-bold text-emerald-300">
+          <section className="space-y-6 rounded-2xl border border-[var(--ast-sky)]/28 bg-[linear-gradient(160deg,rgba(9,18,44,0.96),rgba(4,11,30,0.96))] p-6 shadow-[0_18px_36px_rgba(1,7,22,0.5)]">
+            <h2 className="font-[family-name:var(--font-space-grotesk)] text-xl font-bold text-emerald-200">
               6. Comercial: Precios y Cupones
             </h2>
 

@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import AddToCartButton from "@/components/AddToCartButton";
-import { getLabPalette } from "@/utils/labPalette";
 
 type Currency = "USD" | "MXN";
 
@@ -82,10 +81,10 @@ export default function LabsMarketplace({
 
   return (
     <section className="space-y-4">
-      <div className="z-20 rounded-xl border border-white/8 bg-[rgba(38,38,38,0.72)] p-2 shadow-[0_6px_18px_rgba(0,0,0,0.22)] backdrop-blur-xl">
+      <div className="z-20 rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface)] p-2 shadow-[0_10px_24px_rgba(2,7,22,0.4)]">
         <div className="flex flex-col gap-1.5 lg:flex-row lg:items-center">
           <div className="relative w-full lg:w-[300px] xl:w-[340px]">
-            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--ast-bone)]/55">
+            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--ui-muted)]">
               <svg
                 viewBox="0 0 24 24"
                 className="h-4 w-4"
@@ -104,13 +103,13 @@ export default function LabsMarketplace({
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Buscar labs, temas o etiquetas..."
-              className="w-full rounded-md border border-white/12 bg-white/[0.04] py-1 pl-9 pr-8 text-[13px] text-[var(--ast-bone)] placeholder:text-[var(--ast-bone)]/45 outline-none transition focus:border-white/30"
+              className="w-full rounded-md border border-[var(--ui-border)] bg-[var(--ui-surface-soft)] py-1.5 pl-9 pr-8 text-[13px] text-[var(--ui-text)] placeholder:text-[var(--ui-muted)] outline-none transition focus:border-[var(--ui-primary)]"
             />
             {query && (
               <button
                 type="button"
                 onClick={() => setQuery("")}
-                className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-md px-1.5 py-0.5 text-[11px] text-[var(--ast-bone)]/70 hover:bg-white/10"
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-md px-1.5 py-0.5 text-[11px] text-[var(--ui-muted)] hover:bg-[rgba(185,214,254,0.12)]"
               >
                 ×
               </button>
@@ -121,7 +120,7 @@ export default function LabsMarketplace({
             <select
               value={accessFilter}
               onChange={(event) => setAccessFilter(event.target.value as AccessFilter)}
-              className="w-full rounded-md border border-white/12 bg-white/[0.04] px-2.5 py-1 text-[13px] text-[var(--ast-bone)] outline-none transition focus:border-white/30 lg:w-[145px]"
+              className="w-full rounded-md border border-[var(--ui-border)] bg-[var(--ui-surface-soft)] px-2.5 py-1.5 text-[13px] text-[var(--ui-text)] outline-none transition focus:border-[var(--ui-primary)] lg:w-[145px]"
               disabled={!isAuthenticated}
             >
               <option value="all">Acceso: Todos</option>
@@ -133,7 +132,7 @@ export default function LabsMarketplace({
           <select
             value={selectedTag}
             onChange={(event) => setSelectedTag(event.target.value)}
-            className="w-full rounded-md border border-white/12 bg-white/[0.04] px-2.5 py-1 text-[13px] text-[var(--ast-bone)] outline-none transition focus:border-white/30 lg:w-[160px]"
+            className="w-full rounded-md border border-[var(--ui-border)] bg-[var(--ui-surface-soft)] px-2.5 py-1.5 text-[13px] text-[var(--ui-text)] outline-none transition focus:border-[var(--ui-primary)] lg:w-[160px]"
           >
             <option value="ALL">Etiqueta: Todas</option>
             {tags.map((tag) => (
@@ -146,7 +145,7 @@ export default function LabsMarketplace({
           <select
             value={sortMode}
             onChange={(event) => setSortMode(event.target.value as SortMode)}
-            className="w-full rounded-md border border-white/12 bg-white/[0.04] px-2.5 py-1 text-[13px] text-[var(--ast-bone)] outline-none transition focus:border-white/30 lg:w-[130px]"
+            className="w-full rounded-md border border-[var(--ui-border)] bg-[var(--ui-surface-soft)] px-2.5 py-1.5 text-[13px] text-[var(--ui-text)] outline-none transition focus:border-[var(--ui-primary)] lg:w-[130px]"
           >
             <option value="featured">Destacados</option>
             <option value="newest">Más nuevos</option>
@@ -163,105 +162,109 @@ export default function LabsMarketplace({
               setAccessFilter("all");
               setSortMode("featured");
             }}
-            className="rounded-md border border-white/12 bg-white/[0.04] px-2.5 py-1 text-[13px] font-semibold text-[var(--ast-bone)]/85 hover:bg-white/10 lg:w-[82px]"
+            className="rounded-md border border-[var(--ui-border)] bg-[rgba(5,14,34,0.86)] px-2.5 py-1.5 text-[13px] font-semibold text-[var(--ui-text)] hover:bg-[rgba(185,214,254,0.12)] lg:w-[82px]"
           >
             Limpiar
           </button>
 
-          <span className="text-xs text-[var(--ast-bone)]/60 lg:ml-auto">
+          <span className="text-xs text-[var(--ui-muted)] lg:ml-auto">
             {filteredLabs.length} {filteredLabs.length === 1 ? "lab" : "labs"}
           </span>
         </div>
       </div>
 
       {filteredLabs.length === 0 ? (
-        <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-sm text-[var(--ast-bone)]/80">
+        <div className="rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface)] p-6 text-sm text-[var(--ui-muted)]">
           No hay labs con esos filtros. Prueba limpiar búsqueda o etiqueta.
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
-        {filteredLabs.map((lab) => {
-          const priceSummary = formatPriceSummary(lab.prices);
-          const palette = getLabPalette(lab.id, lab.backgroundImageUrl, lab.accentColor);
-          const labHref = `/labs/${lab.slug ?? lab.id}`;
-          return (
-            <article
-              key={lab.id}
-              className="relative rounded-2xl border p-6 transition duration-300 hover:-translate-y-1"
-              style={{
-                background: palette.cardBackground,
-                borderColor: palette.borderColor,
-                boxShadow: palette.outlineShadow,
-              }}
-            >
-              <div className="mb-3 flex flex-wrap gap-1">
-                {lab.hasAccess ? (
-                  <span className="rounded-full border border-[var(--ast-mint)]/50 bg-[var(--ast-forest)]/35 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--ast-mint)]">
-                    Acceso activo
-                  </span>
-                ) : (
-                  <span className="rounded-full border border-[var(--ast-coral)]/45 bg-[var(--ast-rust)]/35 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--ast-yellow)]">
-                    Bloqueado
-                  </span>
-                )}
-                {lab.labels.map((label) => (
-                  <span
-                    key={`${lab.id}-${label}`}
-                    className="rounded-full border px-2 py-1 text-[10px] font-semibold uppercase tracking-wide"
-                    style={{
-                      borderColor: palette.borderColor,
-                      background: palette.chipBackground,
-                      color: palette.chipTextColor,
-                    }}
-                  >
-                    {label}
-                  </span>
-                ))}
-              </div>
+          {filteredLabs.map((lab) => {
+            const priceSummary = formatPriceSummary(lab.prices);
+            const labHref = `/labs/${lab.slug ?? lab.id}`;
+            const accentColor = normalizeAccentColor(lab.accentColor);
+            const previewImage = lab.backgroundImageUrl || "/labs-people.bg.png";
 
-              <h3 className="text-3xl font-bold text-[var(--ast-bone)]">{lab.title}</h3>
-              <p className="mt-3 h-[84px] overflow-hidden text-sm leading-relaxed text-[var(--ast-bone)]/75 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:4]">
-                {lab.description ?? "Sin descripción"}
-              </p>
+            return (
+              <article
+                key={lab.id}
+                className="relative overflow-hidden rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface)] p-5 shadow-[0_14px_26px_rgba(2,7,22,0.42)] transition duration-300 hover:-translate-y-1 hover:shadow-[0_22px_36px_rgba(2,7,22,0.52)]"
+              >
+                <div
+                  className="mb-4 h-28 rounded-xl border border-[var(--ui-border)] bg-cover bg-center"
+                  style={{ backgroundImage: `url("${previewImage}")` }}
+                />
 
-              <p className="mt-4 text-sm font-semibold" style={{ color: palette.accentColor }}>
-                {priceSummary}
-              </p>
+                <div className="mb-3 flex flex-wrap gap-1.5">
+                  {lab.hasAccess ? (
+                    <span className="rounded-full border border-[var(--ast-mint)]/45 bg-[rgba(4,164,90,0.18)] px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--ast-mint)]">
+                      Acceso activo
+                    </span>
+                  ) : (
+                    <span className="rounded-full border border-[var(--ast-coral)]/45 bg-[rgba(136,31,0,0.24)] px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--ast-yellow)]">
+                      Bloqueado
+                    </span>
+                  )}
+                  {lab.labels.map((label) => (
+                    <span
+                      key={`${lab.id}-${label}`}
+                      className="rounded-full border px-2 py-1 text-[10px] font-semibold uppercase tracking-wide"
+                      style={{
+                        borderColor: `${accentColor}55`,
+                        backgroundColor: `${accentColor}14`,
+                        color: accentColor,
+                      }}
+                    >
+                      {label}
+                    </span>
+                  ))}
+                </div>
 
-              <div className="mt-5 space-y-2">
-                {lab.hasAccess ? (
-                  <Link
-                    href={labHref}
-                    className="inline-flex w-full items-center justify-center rounded-lg bg-[var(--ast-mint)] px-4 py-2 text-sm font-bold text-[var(--ast-black)] transition hover:bg-[var(--ast-forest)]"
-                  >
-                    Entrar
-                  </Link>
-                ) : (
-                  <>
-                    <div className="flex items-center gap-3 text-xs">
-                      <Link
-                        href={`${labHref}?day=1`}
-                        className="text-[var(--ast-sky)] hover:text-[var(--ast-mint)]"
-                      >
-                        Ver Día 1
-                      </Link>
-                      {canUseCart ? (
-                        <Link href="/cart" className="text-[var(--ast-mint)] hover:underline">
-                          Ir al carrito
+                <h3 className="font-[family-name:var(--font-space-grotesk)] text-2xl font-bold text-[var(--ui-text)]">
+                  {lab.title}
+                </h3>
+                <p className="mt-2 h-[72px] overflow-hidden text-sm leading-relaxed text-[var(--ui-muted)] [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:3]">
+                  {lab.description ?? "Sin descripción"}
+                </p>
+
+                <p className="mt-4 text-sm font-semibold" style={{ color: accentColor }}>
+                  {priceSummary}
+                </p>
+
+                <div className="mt-5 space-y-2">
+                  {lab.hasAccess ? (
+                    <Link
+                      href={labHref}
+                      className="inline-flex w-full items-center justify-center rounded-lg bg-[var(--ui-primary)] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[var(--ast-atlantic)]"
+                    >
+                      Entrar
+                    </Link>
+                  ) : (
+                    <>
+                      <div className="flex items-center gap-3 text-xs">
+                        <Link
+                          href={`${labHref}?day=1`}
+                          className="text-[var(--ui-primary)] hover:text-[#1d4ed8]"
+                        >
+                          Ver Día 1
                         </Link>
-                      ) : (
-                        <Link href="/login" className="text-[var(--ast-mint)] hover:underline">
-                          Acceder
-                        </Link>
-                      )}
-                    </div>
-                    {canUseCart && <AddToCartButton labId={lab.id} />}
-                  </>
-                )}
-              </div>
-            </article>
-          );
-        })}
+                        {canUseCart ? (
+                          <Link href="/cart" className="text-[var(--ui-accent)] hover:underline">
+                            Ir al carrito
+                          </Link>
+                        ) : (
+                          <Link href="/login" className="text-[var(--ui-accent)] hover:underline">
+                            Acceder
+                          </Link>
+                        )}
+                      </div>
+                      {canUseCart && <AddToCartButton labId={lab.id} />}
+                    </>
+                  )}
+                </div>
+              </article>
+            );
+          })}
         </div>
       )}
     </section>
@@ -319,4 +322,11 @@ function formatMoney(amountCents: number, currency: Currency): string {
     style: "currency",
     currency,
   }).format(amountCents / 100);
+}
+
+function normalizeAccentColor(color: string | null | undefined): string {
+  if (!color) return "#2563EB";
+  const value = color.trim();
+  if (!/^#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})$/.test(value)) return "#2563EB";
+  return value;
 }

@@ -498,7 +498,7 @@ export default function LabContent({
               Paso {index + 1}
             </p>
             <div
-              className="max-w-none text-[15px] text-gray-100/95 leading-7 [&_p]:mb-3 [&_p:last-child]:mb-0 [&_ul]:my-3 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-3 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:mb-1"
+              className="max-w-none text-[15px] text-[var(--ast-bone)]/95 leading-7 [&_p]:mb-3 [&_p:last-child]:mb-0 [&_ul]:my-3 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-3 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:mb-1"
               dangerouslySetInnerHTML={{ __html: safeHtml }}
             />
           </div>
@@ -508,7 +508,7 @@ export default function LabContent({
       return (
         <div
           key={block.id}
-          className="lg:col-span-2 rounded-lg border border-gray-700 bg-black/30 p-4 text-gray-300"
+          className="lg:col-span-2 rounded-lg border border-[var(--ast-sky)]/30 bg-[rgba(4,12,31,0.72)] p-4 text-[#d6e4fb]"
         >
           <div
             className="max-w-none text-[15px] leading-7 [&_p]:mb-3 [&_p:last-child]:mb-0 [&_ul]:my-3 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-3 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:mb-1"
@@ -522,16 +522,16 @@ export default function LabContent({
       return (
         <div
           key={block.id}
-          className="rounded-lg border border-gray-700 bg-black/30 p-3 space-y-2"
+          className="rounded-lg border border-[var(--ast-sky)]/30 bg-[rgba(4,12,31,0.72)] p-3 space-y-2"
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={block.url}
             alt={block.caption || "Imagen del dia"}
-            className="w-full rounded-lg border border-gray-700"
+            className="w-full rounded-lg border border-[var(--ast-sky)]/30"
             loading="lazy"
           />
-          {block.caption && <p className="text-sm text-gray-400">{block.caption}</p>}
+          {block.caption && <p className="text-sm text-[#9fb3d6]">{block.caption}</p>}
         </div>
       );
     }
@@ -540,10 +540,10 @@ export default function LabContent({
       return (
         <div
           key={block.id}
-          className="rounded-lg border border-gray-700 bg-black/30 p-3 space-y-2"
+          className="rounded-lg border border-[var(--ast-sky)]/30 bg-[rgba(4,12,31,0.72)] p-3 space-y-2"
         >
           <audio controls className="w-full" src={block.url} />
-          {block.caption && <p className="text-sm text-gray-400">{block.caption}</p>}
+          {block.caption && <p className="text-sm text-[#9fb3d6]">{block.caption}</p>}
         </div>
       );
     }
@@ -557,7 +557,7 @@ export default function LabContent({
       const videoCardClassName =
         section === "resource"
           ? "lg:col-span-2 rounded-lg border border-[var(--ast-sky)]/35 bg-[rgba(7,68,168,0.14)] p-3 space-y-2"
-          : "rounded-lg border border-gray-700 bg-black/30 p-3 space-y-2";
+          : "rounded-lg border border-[var(--ast-sky)]/30 bg-[rgba(4,12,31,0.72)] p-3 space-y-2";
       return (
         <div
           key={block.id}
@@ -572,15 +572,15 @@ export default function LabContent({
           ) : embeddedVideoId ? (
             <iframe
               title={block.caption || `Video ${index + 1}`}
-              className="w-full aspect-video rounded-lg border border-gray-700"
+              className="w-full aspect-video rounded-lg border border-[var(--ast-sky)]/30"
               src={`https://www.youtube.com/embed/${embeddedVideoId}`}
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
               allowFullScreen
             />
           ) : (
-            <video controls className="w-full rounded-lg border border-gray-700" src={block.url} />
+            <video controls className="w-full rounded-lg border border-[var(--ast-sky)]/30" src={block.url} />
           )}
-          {block.caption && <p className="text-sm text-gray-400">{block.caption}</p>}
+          {block.caption && <p className="text-sm text-[#9fb3d6]">{block.caption}</p>}
         </div>
       );
     }
@@ -591,12 +591,12 @@ export default function LabContent({
         <div
           key={block.id}
           id={`resource-${block.id}`}
-          className="rounded-lg border border-gray-700 bg-black/30 p-4"
+          className="rounded-lg border border-[var(--ast-sky)]/30 bg-[rgba(4,12,31,0.72)] p-4"
         >
-          <p className="text-xs uppercase tracking-widest text-gray-400 mb-1">
+          <p className="text-xs uppercase tracking-widest text-[#9fb3d6] mb-1">
             Recurso descargable
           </p>
-          <p className="text-sm text-gray-200 mb-3">{fileLabel}</p>
+          <p className="text-sm text-[#e3ecfd] mb-3">{fileLabel}</p>
           <a
             href={block.url}
             target="_blank"
@@ -617,13 +617,13 @@ export default function LabContent({
       return (
         <div
           key={block.id}
-          className="rounded-lg border border-gray-700 bg-black/30 p-4 space-y-3"
+          className="rounded-lg border border-[var(--ast-sky)]/30 bg-[rgba(4,12,31,0.72)] p-4 space-y-3"
         >
           <div className="flex items-center justify-between gap-3">
             <h3 className="text-lg font-semibold text-[var(--ast-mint)]">
               {block.title?.trim() || "Checklist del dia"}
             </h3>
-            <span className="text-xs px-2 py-1 rounded-full bg-white/10 text-gray-300">
+            <span className="text-xs px-2 py-1 rounded-full bg-white/10 text-[#d6e4fb]">
               {doneCount}/{itemCount}
             </span>
           </div>
@@ -634,7 +634,7 @@ export default function LabContent({
               return (
                 <label
                   key={item.id}
-                  className="flex items-start gap-3 rounded border border-gray-700 p-2 bg-gray-950/40"
+                  className="flex items-start gap-3 rounded border border-[var(--ast-sky)]/30 p-2 bg-[rgba(3,10,24,0.68)]"
                 >
                   <input
                     type="checkbox"
@@ -642,7 +642,7 @@ export default function LabContent({
                     onChange={() => toggleChecklistItem(block.id, item.id)}
                     className="mt-1"
                   />
-                  <span className={checked ? "text-gray-300 line-through" : "text-gray-200"}>
+                  <span className={checked ? "text-[#d6e4fb] line-through" : "text-[#e3ecfd]"}>
                     {item.text}
                   </span>
                 </label>
@@ -661,14 +661,14 @@ export default function LabContent({
       return (
         <div
           key={block.id}
-          className="rounded-lg border border-gray-700 bg-black/30 p-4 space-y-4"
+          className="rounded-lg border border-[var(--ast-sky)]/30 bg-[rgba(4,12,31,0.72)] p-4 space-y-4"
         >
           <div className="flex items-center justify-between gap-3">
             <h3 className="text-lg font-semibold text-[var(--ast-sky)]">
               {block.title?.trim() || "Quiz rapido"}
             </h3>
             {revealResults && (
-              <span className="text-xs px-2 py-1 rounded-full bg-white/10 text-gray-300">
+              <span className="text-xs px-2 py-1 rounded-full bg-white/10 text-[#d6e4fb]">
                 {quizResult.correct}/{quizResult.total}
               </span>
             )}
@@ -686,9 +686,9 @@ export default function LabContent({
               return (
                 <div
                   key={question.id}
-                  className="rounded border border-gray-700 p-3 bg-gray-950/40 space-y-2"
+                  className="rounded border border-[var(--ast-sky)]/30 p-3 bg-[rgba(3,10,24,0.68)] space-y-2"
                 >
-                  <p className="text-sm font-semibold text-gray-100">
+                  <p className="text-sm font-semibold text-[var(--ast-bone)]">
                     {questionIndex + 1}. {question.prompt}
                   </p>
 
@@ -696,7 +696,7 @@ export default function LabContent({
                     {(question.options ?? []).map((option, optionIndex) => (
                       <label
                         key={`${question.id}_${optionIndex}`}
-                        className="flex items-center gap-2 text-sm text-gray-200"
+                        className="flex items-center gap-2 text-sm text-[#e3ecfd]"
                       >
                         <input
                           type="radio"
@@ -720,7 +720,7 @@ export default function LabContent({
                   )}
 
                   {revealResults && question.explanation && (
-                    <p className="text-xs text-gray-400">{question.explanation}</p>
+                    <p className="text-xs text-[#9fb3d6]">{question.explanation}</p>
                   )}
                 </div>
               );
@@ -735,7 +735,7 @@ export default function LabContent({
             >
               Revisar respuestas
             </button>
-            <p className="text-xs text-gray-400">
+            <p className="text-xs text-[#9fb3d6]">
               Respondidas: {quizResult.answered}/{quizResult.total}
             </p>
           </div>
@@ -796,7 +796,7 @@ export default function LabContent({
                       <p className="text-xs uppercase tracking-wider text-[var(--ast-sky)]/90">
                         Qué debes captar antes de seguir
                       </p>
-                      <ul className="mt-2 space-y-1 text-sm text-gray-100">
+                      <ul className="mt-2 space-y-1 text-sm text-[var(--ast-bone)]">
                         {filteredKeyTakeaways.map((item, itemIndex) => (
                           <li key={`takeaway_${itemIndex}`}>• {item}</li>
                         ))}
@@ -873,7 +873,7 @@ export default function LabContent({
                       onChange={(e) => setChallengeNotes(e.target.value)}
                       placeholder="Escribe aquí tu respuesta o reflexión del reto de hoy..."
                       rows={5}
-                      className="mt-2 w-full rounded-lg border border-[var(--ast-mint)]/35 bg-black/30 p-3 text-sm text-gray-100 outline-none focus:border-[var(--ast-mint)]"
+                      className="mt-2 w-full rounded-lg border border-[var(--ast-mint)]/35 bg-[rgba(4,12,31,0.72)] p-3 text-sm text-[var(--ast-bone)] outline-none focus:border-[var(--ast-mint)]"
                     />
                     <p className="mt-1 text-[11px] text-[#9bcfc0]">
                       Se guarda automáticamente para este día.
@@ -910,11 +910,11 @@ export default function LabContent({
             {!forumCollapsed && (
               <>
                 {previewMode ? (
-                  <div className="mt-4 p-6 rounded-xl border border-dashed border-white/20 bg-black/20">
+                  <div className="mt-4 p-6 rounded-xl border border-dashed border-white/20 bg-[rgba(4,12,31,0.46)]">
                     <h3 className="text-lg font-bold mb-2 text-[var(--ast-yellow)]">
                       Te gusto este lab?
                     </h3>
-                    <p className="text-gray-300 mb-4">
+                    <p className="text-[#d6e4fb] mb-4">
                       Crea una cuenta para desbloquear todos los dias y participar en el foro.
                     </p>
                     <Link
@@ -948,7 +948,7 @@ export default function LabContent({
               </p>
             </div>
             <ul className="space-y-2 text-sm">
-              <li className="flex items-center justify-between rounded border border-gray-700/70 bg-black/25 px-3 py-2">
+              <li className="flex items-center justify-between rounded border border-[var(--ast-sky)]/30 bg-[rgba(4,12,31,0.58)] px-3 py-2">
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
@@ -958,13 +958,13 @@ export default function LabContent({
                   >
                     1
                   </button>
-                  <span className="text-gray-300">{primaryRouteLabel}</span>
+                  <span className="text-[#d6e4fb]">{primaryRouteLabel}</span>
                 </div>
                 <span className={videoStepDone ? "text-green-400" : "text-yellow-400"}>
                   {videoStepDone ? "Listo" : "Pendiente"}
                 </span>
               </li>
-              <li className="flex items-center justify-between rounded border border-gray-700/70 bg-black/25 px-3 py-2">
+              <li className="flex items-center justify-between rounded border border-[var(--ast-sky)]/30 bg-[rgba(4,12,31,0.58)] px-3 py-2">
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
@@ -974,14 +974,14 @@ export default function LabContent({
                   >
                     2
                   </button>
-                  <span className="text-gray-300">Resolver reto</span>
+                  <span className="text-[#d6e4fb]">Resolver reto</span>
                 </div>
                 <span className={challengeStepDone ? "text-green-400" : "text-yellow-400"}>
                   {challengeStepDone ? "Listo" : "Pendiente"}
                 </span>
               </li>
               {hasForumStep && (
-                <li className="flex items-center justify-between rounded border border-gray-700/70 bg-black/25 px-3 py-2">
+                <li className="flex items-center justify-between rounded border border-[var(--ast-sky)]/30 bg-[rgba(4,12,31,0.58)] px-3 py-2">
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
@@ -991,7 +991,7 @@ export default function LabContent({
                     >
                       3
                     </button>
-                    <span className="text-gray-300">Publicar en foro</span>
+                    <span className="text-[#d6e4fb]">Publicar en foro</span>
                   </div>
                   <span className={forumStepDone ? "text-green-400" : "text-yellow-400"}>
                     {forumStepDone ? "Listo" : "Pendiente"}
@@ -1006,66 +1006,66 @@ export default function LabContent({
             >
               {primaryAction.label}
             </button>
-            <p className="text-xs text-gray-300/80">{primaryAction.description}</p>
+            <p className="text-xs text-[#d6e4fb]/80">{primaryAction.description}</p>
             <button
               type="button"
               onClick={openQuickTutorial}
-              className="w-full rounded-md border border-[var(--ast-sky)]/40 bg-black/20 px-3 py-2 text-xs font-semibold uppercase tracking-widest text-[var(--ast-sky)] hover:border-[var(--ast-mint)] hover:text-[var(--ast-mint)]"
+              className="w-full rounded-md border border-[var(--ast-sky)]/40 bg-[rgba(4,12,31,0.46)] px-3 py-2 text-xs font-semibold uppercase tracking-widest text-[var(--ast-sky)] hover:border-[var(--ast-mint)] hover:text-[var(--ast-mint)]"
             >
               Ver tutorial rápido
             </button>
           </div>
 
-          <div className="rounded-2xl border border-gray-700 bg-[linear-gradient(160deg,rgba(9,18,40,0.93),rgba(7,14,32,0.93))] p-4 shadow-[0_12px_28px_rgba(2,7,19,0.45)] space-y-3">
+          <div className="rounded-2xl border border-[var(--ast-sky)]/30 bg-[linear-gradient(160deg,rgba(9,18,40,0.93),rgba(7,14,32,0.93))] p-4 shadow-[0_12px_28px_rgba(2,7,19,0.45)] space-y-3">
             <h3 className="text-sm uppercase tracking-widest text-[var(--ast-sky)]">
               Guía del día
             </h3>
-            <div className="rounded border border-gray-700 bg-black/30 p-3">
+            <div className="rounded border border-[var(--ast-sky)]/30 bg-[rgba(4,12,31,0.72)] p-3">
               <p className="text-[11px] uppercase tracking-wider text-[var(--ast-sky)]/80">
                 Objetivo del día
               </p>
-              <p className="mt-1 text-sm text-gray-100 leading-relaxed">{dayObjective}</p>
+              <p className="mt-1 text-sm text-[var(--ast-bone)] leading-relaxed">{dayObjective}</p>
             </div>
-            <div className="rounded border border-gray-700 bg-black/30 p-3">
+            <div className="rounded border border-[var(--ast-sky)]/30 bg-[rgba(4,12,31,0.72)] p-3">
               <p className="text-[11px] uppercase tracking-wider text-[var(--ast-sky)]/80">
                 Tiempo estimado
               </p>
-              <p className="mt-1 text-sm font-semibold text-gray-100">~{estimatedMinutes} min</p>
+              <p className="mt-1 text-sm font-semibold text-[var(--ast-bone)]">~{estimatedMinutes} min</p>
             </div>
-            <div className="rounded border border-gray-700 bg-black/30 p-3">
+            <div className="rounded border border-[var(--ast-sky)]/30 bg-[rgba(4,12,31,0.72)] p-3">
               <p className="text-[11px] uppercase tracking-wider text-[var(--ast-sky)]/80">
                 Siguiente acción
               </p>
-              <p className="mt-1 text-sm text-gray-100 leading-relaxed">{nextAction}</p>
+              <p className="mt-1 text-sm text-[var(--ast-bone)] leading-relaxed">{nextAction}</p>
             </div>
           </div>
 
           {showProgressPanel && (
-            <div className="rounded-2xl border border-gray-700 bg-[linear-gradient(160deg,rgba(9,18,40,0.93),rgba(7,14,32,0.93))] p-4 shadow-[0_12px_28px_rgba(2,7,19,0.45)] space-y-3">
+            <div className="rounded-2xl border border-[var(--ast-sky)]/30 bg-[linear-gradient(160deg,rgba(9,18,40,0.93),rgba(7,14,32,0.93))] p-4 shadow-[0_12px_28px_rgba(2,7,19,0.45)] space-y-3">
               <h3 className="text-sm uppercase tracking-widest text-[var(--ast-mint)]">
                 Progreso interactivo
               </h3>
 
               {showChecklistSummary && (
-                <div className="rounded border border-gray-700 bg-black/30 p-3">
-                  <p className="text-xs text-gray-400">Checklist completado</p>
-                  <p className="text-lg font-bold text-gray-100">
+                <div className="rounded border border-[var(--ast-sky)]/30 bg-[rgba(4,12,31,0.72)] p-3">
+                  <p className="text-xs text-[#9fb3d6]">Checklist completado</p>
+                  <p className="text-lg font-bold text-[var(--ast-bone)]">
                     {completedChecklistItems}/{totalChecklistItems}
                   </p>
                 </div>
               )}
 
               {showQuizSummary && (
-                <div className="rounded border border-gray-700 bg-black/30 p-3 space-y-2">
-                  <p className="text-xs text-gray-400">Evaluaciones del dia</p>
-                  <p className="text-sm text-gray-200">Quizzes activos: {quizBlocks.length}</p>
+                <div className="rounded border border-[var(--ast-sky)]/30 bg-[rgba(4,12,31,0.72)] p-3 space-y-2">
+                  <p className="text-xs text-[#9fb3d6]">Evaluaciones del dia</p>
+                  <p className="text-sm text-[#e3ecfd]">Quizzes activos: {quizBlocks.length}</p>
                 </div>
               )}
             </div>
           )}
 
           {showResourcesQuickAccess && (
-            <div className="rounded-2xl border border-gray-700 bg-[linear-gradient(160deg,rgba(9,18,40,0.93),rgba(7,14,32,0.93))] p-4 shadow-[0_12px_28px_rgba(2,7,19,0.45)] space-y-2">
+            <div className="rounded-2xl border border-[var(--ast-sky)]/30 bg-[linear-gradient(160deg,rgba(9,18,40,0.93),rgba(7,14,32,0.93))] p-4 shadow-[0_12px_28px_rgba(2,7,19,0.45)] space-y-2">
               <h3 className="text-sm uppercase tracking-widest text-[var(--ast-sky)]">
                 Accesos rápidos
               </h3>
@@ -1101,26 +1101,26 @@ export default function LabContent({
               <button
                 type="button"
                 onClick={closeQuickTutorial}
-                className="rounded-md border border-gray-600 px-2 py-1 text-xs font-semibold text-gray-300 hover:border-gray-400 hover:text-white"
+                className="rounded-md border border-[var(--ast-sky)]/40 px-2 py-1 text-xs font-semibold text-[#d6e4fb] hover:border-[var(--ast-sky)]/65 hover:text-white"
               >
                 Cerrar
               </button>
             </div>
 
-            <ol className="mt-4 space-y-3 text-sm text-gray-200">
-              <li className="rounded-lg border border-gray-700 bg-black/25 p-3">
+            <ol className="mt-4 space-y-3 text-sm text-[#e3ecfd]">
+              <li className="rounded-lg border border-[var(--ast-sky)]/30 bg-[rgba(4,12,31,0.58)] p-3">
                 <span className="font-semibold text-[var(--ast-mint)]">1.</span>{" "}
                 Completa el <span className="font-semibold">recurso principal</span>.
               </li>
-              <li className="rounded-lg border border-gray-700 bg-black/25 p-3">
+              <li className="rounded-lg border border-[var(--ast-sky)]/30 bg-[rgba(4,12,31,0.58)] p-3">
                 <span className="font-semibold text-[var(--ast-mint)]">2.</span>{" "}
                 Resuelve el reto y publica tu resultado en el foro.
               </li>
-              <li className="rounded-lg border border-gray-700 bg-black/25 p-3">
+              <li className="rounded-lg border border-[var(--ast-sky)]/30 bg-[rgba(4,12,31,0.58)] p-3">
                 <span className="font-semibold text-[var(--ast-mint)]">3.</span>{" "}
                 Usa los números de <span className="font-semibold">Ruta del día</span> para ir directo a cada sección.
               </li>
-              <li className="rounded-lg border border-gray-700 bg-black/25 p-3">
+              <li className="rounded-lg border border-[var(--ast-sky)]/30 bg-[rgba(4,12,31,0.58)] p-3">
                 <span className="font-semibold text-[var(--ast-mint)]">4.</span>{" "}
                 Marca como terminado al final del recurso o reto para desbloquear el siguiente módulo.
               </li>

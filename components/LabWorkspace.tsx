@@ -146,11 +146,11 @@ export default function LabWorkspace({
                 key={d.id}
                 type="button"
                 onClick={() => handleSelectDay(d.day_number)}
-                className={`rounded-md border px-3 py-2 transition text-left min-h-[74px] ${currentDayNumber === d.day_number ? "border-[var(--ast-mint)] bg-[color:rgba(4,73,44,0.45)]" : "border-gray-800 bg-gray-900 hover:border-gray-600"} ${locked ? "opacity-65" : ""}`}
+                className={`rounded-md border px-3 py-2 text-left min-h-[74px] transition ${currentDayNumber === d.day_number ? "border-[var(--ast-mint)] bg-[color:rgba(4,73,44,0.45)]" : "border-[var(--ast-sky)]/28 bg-[rgba(4,12,31,0.82)] hover:border-[var(--ast-sky)]/55 hover:bg-[rgba(7,26,58,0.78)]"} ${locked ? "opacity-65" : ""}`}
               >
                 <div className="grid grid-cols-[24px_1fr_auto] items-start gap-2">
                   <span
-                    className={`h-6 min-w-6 rounded-full px-1 flex items-center justify-center text-xs font-bold ${currentDayNumber === d.day_number ? "bg-[var(--ast-mint)] text-black" : "bg-gray-800 text-[var(--ast-sky)]"}`}
+                    className={`flex h-6 min-w-6 items-center justify-center rounded-full px-1 text-xs font-bold ${currentDayNumber === d.day_number ? "bg-[var(--ast-mint)] text-black" : "bg-[rgba(10,86,198,0.28)] text-[var(--ast-sky)]"}`}
                   >
                     {d.day_number}
                   </span>
@@ -181,7 +181,7 @@ export default function LabWorkspace({
           />
         </>
       ) : (
-        <div className="h-64 flex items-center justify-center border-2 border-dashed border-gray-800 rounded-xl text-gray-500">
+        <div className="flex h-64 items-center justify-center rounded-xl border-2 border-dashed border-[var(--ast-sky)]/28 text-[#8fa6cc]">
           Selecciona un día para comenzar.
         </div>
       )}

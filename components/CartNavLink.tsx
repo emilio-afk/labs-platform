@@ -27,7 +27,7 @@ export default function CartNavLink({ href = "/cart" }: CartNavLinkProps) {
   return (
     <Link
       href={href}
-      className="relative inline-flex h-10 w-10 items-center justify-center rounded-full border border-[var(--ast-sky)]/45 text-[var(--ast-sky)] hover:bg-[var(--ast-sky)]/10 transition"
+      className="relative inline-flex h-10 w-10 items-center justify-center rounded-full border border-[var(--ui-border)] bg-[rgba(4,12,31,0.65)] text-[var(--ui-secondary)] hover:border-[var(--ast-mint)] hover:text-[var(--ast-mint)] hover:bg-[rgba(4,164,90,0.12)] transition"
       aria-label="Carrito"
       title="Carrito"
     >
@@ -46,7 +46,7 @@ export default function CartNavLink({ href = "/cart" }: CartNavLinkProps) {
         <path d="M3 4h2l2.2 10.3a2 2 0 0 0 2 1.7h7.6a2 2 0 0 0 2-1.6L21 7H7" />
       </svg>
       {count > 0 && (
-        <span className="absolute -right-1 -top-1 inline-flex min-w-5 items-center justify-center rounded-full bg-[var(--ast-mint)] px-1.5 text-[10px] font-bold text-[var(--ast-black)]">
+        <span className="absolute -right-1 -top-1 inline-flex min-w-5 items-center justify-center rounded-full bg-[var(--ui-accent)] px-1.5 text-[10px] font-bold text-white">
           {count > 99 ? "99+" : count}
         </span>
       )}

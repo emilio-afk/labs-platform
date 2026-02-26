@@ -95,18 +95,20 @@ export default async function CartPage({
     .filter((title): title is string => Boolean(title));
 
   return (
-    <div className="min-h-screen bg-[var(--ast-black)] text-[var(--ast-white)]">
-      <div className="border-b border-[var(--ast-sky)]/25 bg-[linear-gradient(90deg,rgba(1,25,99,0.65),rgba(10,86,198,0.45),rgba(4,164,90,0.22))] px-6 py-5">
+    <div className="min-h-screen bg-[var(--ui-bg)] text-[var(--ui-text)]">
+      <div className="border-b border-[var(--ui-border)] bg-[rgba(5,14,34,0.9)] px-6 py-5">
         <div className="mx-auto flex max-w-3xl items-center justify-between">
           <div>
-            <p className="text-xs uppercase tracking-wider text-[var(--ast-sky)]/90">
+            <p className="text-xs uppercase tracking-wider text-[var(--ui-muted)]">
               Checkout
             </p>
-            <h1 className="text-2xl font-bold">Carrito</h1>
+            <h1 className="font-[family-name:var(--font-space-grotesk)] text-2xl font-bold">
+              Carrito
+            </h1>
           </div>
           <Link
             href="/"
-            className="rounded-full border border-[var(--ast-sky)]/45 px-4 py-2 text-sm text-[var(--ast-sky)] hover:bg-[var(--ast-sky)]/10"
+            className="rounded-full border border-[var(--ui-border)] bg-[var(--ui-surface-soft)] px-4 py-2 text-sm text-[var(--ui-text)] transition hover:border-[var(--ui-secondary)] hover:bg-[rgba(185,214,254,0.12)]"
           >
             Volver a labs
           </Link>
@@ -138,11 +140,11 @@ export default async function CartPage({
         )}
 
         {blockedLabs.length === 0 ? (
-          <div className="rounded-2xl border border-[var(--ast-sky)]/30 bg-[var(--ast-indigo)]/20 p-8 text-center">
-            <h2 className="text-xl font-bold text-[var(--ast-mint)]">
+          <div className="rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface)] p-8 text-center">
+            <h2 className="text-xl font-bold text-[var(--ui-text)]">
               Ya tienes todos los labs desbloqueados
             </h2>
-            <p className="mt-2 text-sm text-[var(--ast-bone)]/80">
+            <p className="mt-2 text-sm text-[var(--ui-muted)]">
               No hay labs pendientes de compra.
             </p>
           </div>
