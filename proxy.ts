@@ -9,6 +9,18 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next({ request });
   }
 
+  const hasSupabaseSessionCookie = request.cookies
+    .getAll()
+    .some(
+      ({ name }) =>
+        name.startsWith("sb-") && name.includes("-auth-token"),
+    );
+
+  // Skip auth refresh for anonymous visitors to avoid unnecessary latency/noise.
+  if (!hasSupabaseSessionCookie) {
+    return NextResponse.next({ request });
+  }
+
   let supabaseResponse = NextResponse.next({
     request,
   });
@@ -40,7 +52,10 @@ export async function proxy(request: NextRequest) {
   try {
     await withTimeout(supabase.auth.getUser(), AUTH_REFRESH_TIMEOUT_MS);
   } catch (error) {
-    if (process.env.NODE_ENV !== "production") {
+    const message =
+      error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+    const isMissingRefreshToken = message.includes("refresh token not found");
+    if (process.env.NODE_ENV !== "production" && !isMissingRefreshToken) {
       console.warn("[proxy] Supabase auth refresh timeout/failure:", error);
     }
   }

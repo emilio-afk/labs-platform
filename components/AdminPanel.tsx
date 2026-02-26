@@ -5,6 +5,7 @@ import {
   createBlock,
   createChecklistItem,
   createQuizQuestion,
+  extractYouTubeVideoId,
   parseDayBlocks,
   parseDayDiscussionPrompt,
   serializeDayBlocks,
@@ -129,6 +130,29 @@ type AdminTab =
 
 type DayBlocksViewPreset = "all" | DayBlockGroup;
 const MAX_DAY_BLOCK_HISTORY = 120;
+const BLOCK_DELETE_UNDO_WINDOW_MS = 9000;
+
+type DayPublishCheck = {
+  id: string;
+  label: string;
+  done: boolean;
+  required: boolean;
+};
+
+type DayPublishChecklist = {
+  checks: DayPublishCheck[];
+  requiredReady: boolean;
+  normalizedBlocks: DayBlock[];
+  resourceBlocksCount: number;
+  challengeBlocksCount: number;
+};
+
+type DayBlockTemplate = {
+  id: string;
+  label: string;
+  description: string;
+  build: () => DayBlock[];
+};
 
 type LabMetaDraft = {
   title: string;
@@ -174,10 +198,11 @@ export default function AdminPanel({
   const [selectedLab, setSelectedLab] = useState<string | null>(
     initialLabs[0]?.id ?? null,
   );
+  const [initialDayBlock] = useState<DayBlock>(() => createBlock("text"));
   const [dayNumber, setDayNumber] = useState(1);
   const [dayTitle, setDayTitle] = useState("");
   const [dayDiscussionPrompt, setDayDiscussionPrompt] = useState("");
-  const [blocks, setBlocks] = useState<DayBlock[]>([createBlock("text")]);
+  const [blocks, setBlocks] = useState<DayBlock[]>(() => [initialDayBlock]);
   const [dayMsg, setDayMsg] = useState("");
   const [days, setDays] = useState<AdminDay[]>([]);
   const [daysMsg, setDaysMsg] = useState("");
@@ -188,6 +213,32 @@ export default function AdminPanel({
     useState<DayBlocksViewPreset>("all");
   const [blockUndoPast, setBlockUndoPast] = useState<DayBlock[][]>([]);
   const [blockUndoFuture, setBlockUndoFuture] = useState<DayBlock[][]>([]);
+  const [focusedBlockId, setFocusedBlockId] = useState<string | null>(null);
+  const [pendingDeleteBlockId, setPendingDeleteBlockId] = useState<string | null>(null);
+  const [selectedTemplateId, setSelectedTemplateId] = useState(
+    "starter-video-text-challenge",
+  );
+  const [showStudentPreview, setShowStudentPreview] = useState(true);
+  const [lastRemovedBlock, setLastRemovedBlock] = useState<{
+    block: DayBlock;
+    index: number;
+  } | null>(null);
+  const [showDeleteDayConfirm, setShowDeleteDayConfirm] = useState(false);
+  const [deleteDayConfirmValue, setDeleteDayConfirmValue] = useState("");
+  const [isDeletingDay, setIsDeletingDay] = useState(false);
+  const [isDaySaving, setIsDaySaving] = useState(false);
+  const [daySaveError, setDaySaveError] = useState<string | null>(null);
+  const [dayLastSavedAt, setDayLastSavedAt] = useState<number | null>(null);
+  const [daySavedSignature, setDaySavedSignature] = useState(() =>
+    buildDayDraftSignature({
+      dayNumber: 1,
+      dayTitle: "",
+      dayDiscussionPrompt: "",
+      blocks: [initialDayBlock],
+    }),
+  );
+  const dayFormRef = useRef<HTMLFormElement | null>(null);
+  const blockDeleteUndoTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const blocksRef = useRef<DayBlock[]>(blocks);
   const isHistoryNavigationRef = useRef(false);
 
@@ -233,6 +284,10 @@ export default function AdminPanel({
     () => managedUsers.find((managedUser) => managedUser.id === selectedManagedUserId) ?? null,
     [managedUsers, selectedManagedUserId],
   );
+  const selectedLabData = useMemo(
+    () => labs.find((lab) => lab.id === selectedLab) ?? null,
+    [labs, selectedLab],
+  );
   const resourceBlockCount = useMemo(
     () =>
       blocks.filter(
@@ -249,21 +304,127 @@ export default function AdminPanel({
   );
   const canUndoBlocks = blockUndoPast.length > 0;
   const canRedoBlocks = blockUndoFuture.length > 0;
+  const visibleBuilderBlocks = useMemo(
+    () =>
+      blocks.filter((block) => {
+        const blockGroup = block.group ?? getDefaultDayBlockGroup(block.type);
+        return dayBlocksViewPreset === "all" || dayBlocksViewPreset === blockGroup;
+      }),
+    [blocks, dayBlocksViewPreset],
+  );
+  const activeBuilderBlock = useMemo(() => {
+    if (visibleBuilderBlocks.length === 0) return null;
+    if (!focusedBlockId) return visibleBuilderBlocks[0];
+    return (
+      visibleBuilderBlocks.find((block) => block.id === focusedBlockId) ??
+      visibleBuilderBlocks[0]
+    );
+  }, [focusedBlockId, visibleBuilderBlocks]);
+  const activeBuilderBlockId = activeBuilderBlock?.id ?? null;
+  const dayShortcutKeyLabel =
+    typeof navigator !== "undefined" && /mac/i.test(navigator.platform)
+      ? "Cmd"
+      : "Ctrl";
+  const dayBlockTemplates = useMemo<DayBlockTemplate[]>(
+    () => [
+      {
+        id: "starter-video-text-challenge",
+        label: "Video + lectura + reto",
+        description: "Estructura base para cualquier tema con recurso principal y actividad.",
+        build: createVideoTextChallengeTemplateBlocks,
+      },
+      {
+        id: "starter-reading-quiz",
+        label: "Lectura + quiz",
+        description: "Ideal para evaluación rápida y refuerzo de conceptos.",
+        build: createReadingQuizTemplateBlocks,
+      },
+      {
+        id: "starter-media-checklist",
+        label: "Media + checklist",
+        description: "Contenido guiado con pasos accionables para práctica.",
+        build: createMediaChecklistTemplateBlocks,
+      },
+    ],
+    [],
+  );
+  const currentDayDraftSignature = useMemo(
+    () =>
+      buildDayDraftSignature({
+        dayNumber,
+        dayTitle,
+        dayDiscussionPrompt,
+        blocks,
+      }),
+    [blocks, dayDiscussionPrompt, dayNumber, dayTitle],
+  );
+  const dayIsDirty = currentDayDraftSignature !== daySavedSignature;
+  const dayPublishChecklist = useMemo(
+    () => buildDayPublishChecklist(dayTitle, dayDiscussionPrompt, blocks),
+    [blocks, dayDiscussionPrompt, dayTitle],
+  );
+  const daySaveState: "clean" | "dirty" | "saving" | "saved" | "error" = isDaySaving
+    ? "saving"
+    : daySaveError
+      ? "error"
+      : dayIsDirty
+        ? "dirty"
+        : dayLastSavedAt
+          ? "saved"
+          : "clean";
+  const dayDeletePhrase = editingDayId ? `ELIMINAR DIA ${dayNumber}` : "";
+  const daySavedTimeLabel = dayLastSavedAt
+    ? new Date(dayLastSavedAt).toLocaleTimeString("es-MX", {
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : null;
 
   useEffect(() => {
     blocksRef.current = blocks;
   }, [blocks]);
+
+  useEffect(() => {
+    return () => {
+      if (blockDeleteUndoTimeoutRef.current) {
+        clearTimeout(blockDeleteUndoTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const clearBlockHistory = useCallback(() => {
     setBlockUndoPast([]);
     setBlockUndoFuture([]);
   }, []);
 
+  const clearBlockDeleteUndo = useCallback(() => {
+    setLastRemovedBlock(null);
+    if (blockDeleteUndoTimeoutRef.current) {
+      clearTimeout(blockDeleteUndoTimeoutRef.current);
+      blockDeleteUndoTimeoutRef.current = null;
+    }
+  }, []);
+
+  const rememberRemovedBlock = useCallback(
+    (payload: { block: DayBlock; index: number }) => {
+      setLastRemovedBlock(payload);
+      if (blockDeleteUndoTimeoutRef.current) {
+        clearTimeout(blockDeleteUndoTimeoutRef.current);
+      }
+      blockDeleteUndoTimeoutRef.current = setTimeout(() => {
+        setLastRemovedBlock(null);
+        blockDeleteUndoTimeoutRef.current = null;
+      }, BLOCK_DELETE_UNDO_WINDOW_MS);
+    },
+    [],
+  );
+
   const commitBlocks = useCallback(
     (
       updater: DayBlock[] | ((prev: DayBlock[]) => DayBlock[]),
       options?: { skipHistory?: boolean },
     ) => {
+      setDaySaveError(null);
       setBlocks((prev) => {
         const next =
           typeof updater === "function"
@@ -620,9 +781,16 @@ export default function AdminPanel({
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (!(event.metaKey || event.ctrlKey) || event.altKey) return;
-      if (isEditableTarget(event.target)) return;
 
       const key = event.key.toLowerCase();
+      if (key === "s") {
+        event.preventDefault();
+        dayFormRef.current?.requestSubmit();
+        return;
+      }
+
+      if (isEditableTarget(event.target)) return;
+
       if (key === "z") {
         event.preventDefault();
         if (event.shiftKey) {
@@ -888,93 +1056,25 @@ export default function AdminPanel({
 
   const saveDay = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!selectedLab) return;
+    if (!selectedLab || isDaySaving) return;
+    setIsDaySaving(true);
+    setDaySaveError(null);
     setDayMsg("Guardando dia...");
 
-    const normalizedBlocks = blocks
-      .map((block) => {
-        const group: DayBlockGroup = block.group ?? getDefaultDayBlockGroup(block.type);
-        const role: DayBlockRole = normalizeBlockRole(block.role, group);
+    const checklist = buildDayPublishChecklist(dayTitle, dayDiscussionPrompt, blocks);
+    if (!checklist.requiredReady) {
+      setDayMsg("Completa los requisitos del checklist antes de guardar.");
+      setDaySaveError("Checklist incompleto");
+      setIsDaySaving(false);
+      return;
+    }
 
-        if (block.type === "text") {
-          const normalizedText = normalizeRichTextInput(block.text ?? "");
-          return {
-            ...block,
-            group,
-            role,
-            text: normalizedText,
-          };
-        }
-
-        if (block.type === "checklist") {
-          const items = (block.items ?? [])
-            .map((item) => ({
-              id: item.id,
-              text: item.text.trim(),
-            }))
-            .filter((item) => Boolean(item.text));
-
-          return {
-            ...block,
-            group,
-            role,
-            title: block.title?.trim() ?? "",
-            items,
-          };
-        }
-
-        if (block.type === "quiz") {
-          const questions = (block.questions ?? [])
-            .map((question) => {
-              const options = (question.options ?? [])
-                .map((option) => option.trim())
-                .filter(Boolean);
-
-              const hasValidCorrect =
-                typeof question.correctIndex === "number" &&
-                question.correctIndex >= 0 &&
-                question.correctIndex < options.length;
-
-              return {
-                id: question.id,
-                prompt: question.prompt.trim(),
-                options,
-                correctIndex: hasValidCorrect ? question.correctIndex : null,
-                explanation: question.explanation?.trim() ?? "",
-              };
-            })
-            .filter(
-              (question) => Boolean(question.prompt) && question.options.length >= 2,
-            );
-
-          return {
-            ...block,
-            group,
-            role,
-            title: block.title?.trim() ?? "",
-            questions,
-          };
-        }
-
-        return {
-          ...block,
-          group,
-          role,
-          url: block.url?.trim() ?? "",
-          caption: block.caption?.trim() ?? "",
-        };
-      })
-      .filter((block) => {
-        if (block.type === "text") return hasRichTextContent(block.text ?? "");
-        if (block.type === "checklist") return (block.items?.length ?? 0) > 0;
-        if (block.type === "quiz") return (block.questions?.length ?? 0) > 0;
-        return Boolean(block.url);
-      });
-
-    const effectiveBlocks = ensurePrimaryResourceBlock(normalizedBlocks);
+    const effectiveBlocks = ensurePrimaryResourceBlock(checklist.normalizedBlocks);
 
     if (effectiveBlocks.length === 0) {
       setDayMsg("Agrega al menos un bloque con contenido.");
+      setDaySaveError("No hay bloques con contenido");
+      setIsDaySaving(false);
       return;
     }
 
@@ -1004,50 +1104,146 @@ export default function AdminPanel({
 
     if (error) {
       setDayMsg("Error: " + error.message);
+      setDaySaveError(error.message);
+      setIsDaySaving(false);
       return;
     }
 
+    const savedAt = getCurrentTimestamp();
     if (editingDayId) {
       setDayMsg("Dia actualizado correctamente");
+      setShowDeleteDayConfirm(false);
+      setDeleteDayConfirmValue("");
+      setDaySavedSignature(
+        buildDayDraftSignature({
+          dayNumber,
+          dayTitle,
+          dayDiscussionPrompt,
+          blocks,
+        }),
+      );
+      setDayLastSavedAt(savedAt);
     } else {
       setDayMsg("Dia guardado correctamente");
+      const nextDayNumber = dayNumber + 1;
+      const blankBlock = createBlock("text");
+      setShowDeleteDayConfirm(false);
+      setDeleteDayConfirmValue("");
       setDayTitle("");
       setDayDiscussionPrompt("");
-      commitBlocks([createBlock("text")], { skipHistory: true });
+      commitBlocks([blankBlock], { skipHistory: true });
       clearBlockHistory();
-      setDayNumber((prev) => prev + 1);
+      setDayNumber(nextDayNumber);
+      setFocusedBlockId(null);
+      setPendingDeleteBlockId(null);
+      clearBlockDeleteUndo();
+      setDaySavedSignature(
+        buildDayDraftSignature({
+          dayNumber: nextDayNumber,
+          dayTitle: "",
+          dayDiscussionPrompt: "",
+          blocks: [blankBlock],
+        }),
+      );
+      setDayLastSavedAt(savedAt);
     }
 
+    setDaySaveError(null);
+    setIsDaySaving(false);
     setDaysRefreshTick((prev) => prev + 1);
   };
 
   const startCreateDay = () => {
+    const nextDay = getNextDayNumber(days);
+    const blankBlock = createBlock("text");
     setEditingDayId(null);
     setDayMsg("");
     setDayTitle("");
     setDayDiscussionPrompt("");
-    commitBlocks([createBlock("text")], { skipHistory: true });
+    setDaySaveError(null);
+    setIsDaySaving(false);
+    setShowDeleteDayConfirm(false);
+    setDeleteDayConfirmValue("");
+    setFocusedBlockId(blankBlock.id);
+    setPendingDeleteBlockId(null);
+    clearBlockDeleteUndo();
+    commitBlocks([blankBlock], { skipHistory: true });
     clearBlockHistory();
     setDayBlocksViewPreset("all");
-    setDayNumber(getNextDayNumber(days));
+    setDayNumber(nextDay);
+    setDayLastSavedAt(null);
+    setDaySavedSignature(
+      buildDayDraftSignature({
+        dayNumber: nextDay,
+        dayTitle: "",
+        dayDiscussionPrompt: "",
+        blocks: [blankBlock],
+      }),
+    );
   };
 
   const startEditDay = (day: AdminDay) => {
+    const nextPrompt = parseDayDiscussionPrompt(day.content);
+    const parsedBlocks = parseDayBlocks(day.content, day.video_url);
+    const nextBlocks = parsedBlocks.length > 0 ? parsedBlocks : [createBlock("text")];
     setEditingDayId(day.id);
     setDayNumber(day.day_number);
     setDayTitle(day.title);
-    setDayDiscussionPrompt(parseDayDiscussionPrompt(day.content));
-    const parsedBlocks = parseDayBlocks(day.content, day.video_url);
-    commitBlocks(parsedBlocks.length > 0 ? parsedBlocks : [createBlock("text")], {
+    setDayDiscussionPrompt(nextPrompt);
+    setDaySaveError(null);
+    setIsDaySaving(false);
+    setShowDeleteDayConfirm(false);
+    setDeleteDayConfirmValue("");
+    setFocusedBlockId(nextBlocks[0]?.id ?? null);
+    setPendingDeleteBlockId(null);
+    clearBlockDeleteUndo();
+    commitBlocks(nextBlocks, {
       skipHistory: true,
     });
     clearBlockHistory();
     setDayBlocksViewPreset("all");
+    setDayLastSavedAt(getCurrentTimestamp());
+    setDaySavedSignature(
+      buildDayDraftSignature({
+        dayNumber: day.day_number,
+        dayTitle: day.title,
+        dayDiscussionPrompt: nextPrompt,
+        blocks: nextBlocks,
+      }),
+    );
     setDayMsg(`Editando dia ${day.day_number}`);
   };
 
   const addBlock = (type: DayBlockType) => {
-    commitBlocks((prev) => [...prev, createBlock(type)]);
+    setPendingDeleteBlockId(null);
+    const nextBlock = createBlock(type);
+    setFocusedBlockId(nextBlock.id);
+    commitBlocks((prev) => [...prev, nextBlock]);
+  };
+
+  const applyTemplate = () => {
+    const template = dayBlockTemplates.find((item) => item.id === selectedTemplateId);
+    if (!template) return;
+
+    const hasDraftContent =
+      dayPublishChecklist.normalizedBlocks.length > 0 || dayTitle.trim().length > 0;
+    if (
+      hasDraftContent &&
+      !window.confirm(
+        `Se reemplazarán los bloques actuales con la plantilla "${template.label}". ¿Continuar?`,
+      )
+    ) {
+      return;
+    }
+
+    const nextBlocks = ensurePrimaryResourceBlock(template.build());
+    commitBlocks(nextBlocks);
+    clearBlockDeleteUndo();
+    clearBlockHistory();
+    setFocusedBlockId(nextBlocks[0]?.id ?? null);
+    setPendingDeleteBlockId(null);
+    setDayBlocksViewPreset("all");
+    setDayMsg(`Plantilla aplicada: ${template.label}`);
   };
 
   const uploadFileForBlock = async (block: DayBlock, file: File) => {
@@ -1247,11 +1443,36 @@ export default function AdminPanel({
   };
 
   const removeBlock = (id: string) => {
-    commitBlocks((prev) => {
-      if (prev.length === 1) return prev;
-      return prev.filter((block) => block.id !== id);
+    if (blocks.length === 1) return;
+    const targetIndex = blocks.findIndex((block) => block.id === id);
+    if (targetIndex < 0) return;
+    const removedSnapshot = cloneDayBlocks([blocks[targetIndex]])[0];
+    setPendingDeleteBlockId(null);
+    const fallbackFocus =
+      blocks[targetIndex + 1]?.id ??
+      blocks[targetIndex - 1]?.id ??
+      null;
+    setFocusedBlockId((prev) => (prev === id ? fallbackFocus : prev));
+    commitBlocks((prev) => prev.filter((block) => block.id !== id));
+    rememberRemovedBlock({
+      block: removedSnapshot,
+      index: targetIndex,
     });
   };
+
+  const undoRemoveBlock = useCallback(() => {
+    if (!lastRemovedBlock) return;
+    const blockSnapshot = cloneDayBlocks([lastRemovedBlock.block])[0];
+    commitBlocks((prev) => {
+      if (prev.some((block) => block.id === blockSnapshot.id)) return prev;
+      const next = [...prev];
+      const insertIndex = Math.min(Math.max(lastRemovedBlock.index, 0), next.length);
+      next.splice(insertIndex, 0, blockSnapshot);
+      return next;
+    });
+    setFocusedBlockId(blockSnapshot.id);
+    clearBlockDeleteUndo();
+  }, [clearBlockDeleteUndo, commitBlocks, lastRemovedBlock]);
 
   const moveBlock = (index: number, direction: -1 | 1) => {
     commitBlocks((prev) => {
@@ -1274,33 +1495,49 @@ export default function AdminPanel({
   };
 
   const deleteDay = async () => {
-    if (!editingDayId) return;
+    if (!editingDayId || isDeletingDay) return;
 
     const targetDay = days.find((day) => day.id === editingDayId);
     if (!targetDay) return;
 
-    const confirmed = window.confirm(
-      `¿Seguro que quieres eliminar el Dia ${targetDay.day_number}: "${targetDay.title}"?`,
-    );
-    if (!confirmed) return;
-
+    setIsDeletingDay(true);
+    setDaySaveError(null);
     setDayMsg("Eliminando dia...");
 
     const { error } = await supabase.from("days").delete().eq("id", editingDayId);
     if (error) {
       setDayMsg("Error al eliminar: " + error.message);
+      setDaySaveError(error.message);
+      setIsDeletingDay(false);
       return;
     }
 
     const nextDays = days.filter((day) => day.id !== editingDayId);
+    const nextDayNumber = getNextDayNumber(nextDays);
+    const blankBlock = createBlock("text");
     setDays(nextDays);
     setEditingDayId(null);
     setDayTitle("");
     setDayDiscussionPrompt("");
-    commitBlocks([createBlock("text")], { skipHistory: true });
+    setShowDeleteDayConfirm(false);
+    setDeleteDayConfirmValue("");
+      setFocusedBlockId(blankBlock.id);
+    setPendingDeleteBlockId(null);
+    clearBlockDeleteUndo();
+    commitBlocks([blankBlock], { skipHistory: true });
     clearBlockHistory();
-    setDayNumber(getNextDayNumber(nextDays));
+    setDayNumber(nextDayNumber);
+    setDayLastSavedAt(null);
+    setDaySavedSignature(
+      buildDayDraftSignature({
+        dayNumber: nextDayNumber,
+        dayTitle: "",
+        dayDiscussionPrompt: "",
+        blocks: [blankBlock],
+      }),
+    );
     setDayMsg(`Dia ${targetDay.day_number} eliminado`);
+    setIsDeletingDay(false);
     setDaysRefreshTick((prev) => prev + 1);
   };
 
@@ -1444,15 +1681,32 @@ export default function AdminPanel({
   };
 
   const handleSelectLab = (labId: string) => {
+    const blankBlock = createBlock("text");
     setSelectedLab(labId);
     setCouponLabId(labId);
     setEditingDayId(null);
     setDayMsg("");
     setDayTitle("");
     setDayDiscussionPrompt("");
-    commitBlocks([createBlock("text")], { skipHistory: true });
+    setDaySaveError(null);
+    setIsDaySaving(false);
+    setDayLastSavedAt(null);
+    setShowDeleteDayConfirm(false);
+    setDeleteDayConfirmValue("");
+    setFocusedBlockId(blankBlock.id);
+    setPendingDeleteBlockId(null);
+    clearBlockDeleteUndo();
+    commitBlocks([blankBlock], { skipHistory: true });
     clearBlockHistory();
     setDayNumber(1);
+    setDaySavedSignature(
+      buildDayDraftSignature({
+        dayNumber: 1,
+        dayTitle: "",
+        dayDiscussionPrompt: "",
+        blocks: [blankBlock],
+      }),
+    );
   };
 
   const handleLogout = async () => {
@@ -1994,7 +2248,11 @@ export default function AdminPanel({
                   Selecciona un curso de la lista para agregar contenido.
                 </div>
               ) : (
-                <form onSubmit={saveDay} className="space-y-4 animate-fadeIn">
+                <form
+                  ref={dayFormRef}
+                  onSubmit={saveDay}
+                  className="space-y-4 animate-fadeIn"
+                >
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <h3 className="font-bold text-xl tracking-tight text-white">
@@ -2015,6 +2273,73 @@ export default function AdminPanel({
                     )}
                   </div>
 
+                  <div className="sticky top-4 z-20 rounded-xl border border-[var(--ast-sky)]/35 bg-[rgba(4,12,31,0.9)] p-3 shadow-[0_10px_24px_rgba(1,8,22,0.45)] backdrop-blur-sm">
+                    <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                      <div className="space-y-0.5">
+                        <p className="text-[11px] uppercase tracking-[0.16em] text-slate-300/80">
+                          Estado del borrador
+                        </p>
+                        <p
+                          className={`text-sm font-semibold ${
+                            daySaveState === "saving"
+                              ? "text-amber-200"
+                              : daySaveState === "error"
+                                ? "text-rose-200"
+                                : daySaveState === "dirty"
+                                  ? "text-cyan-200"
+                                  : daySaveState === "saved"
+                                    ? "text-emerald-200"
+                                    : "text-slate-200"
+                          }`}
+                        >
+                          {daySaveState === "saving" && "Guardando cambios..."}
+                          {daySaveState === "error" &&
+                            `Error de guardado${daySaveError ? `: ${daySaveError}` : ""}`}
+                          {daySaveState === "dirty" && "Cambios sin guardar"}
+                          {daySaveState === "saved" &&
+                            `Guardado a las ${daySavedTimeLabel ?? "--:--"}`}
+                          {daySaveState === "clean" && "Sin cambios pendientes"}
+                        </p>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="rounded-full border border-slate-600/70 bg-black/30 px-2.5 py-1 text-[11px] text-slate-200">
+                          {dayShortcutKeyLabel} + S guardar
+                        </span>
+                        <span className="rounded-full border border-slate-600/70 bg-black/30 px-2.5 py-1 text-[11px] text-slate-200">
+                          {dayShortcutKeyLabel} + Z deshacer
+                        </span>
+                        <button
+                          type="submit"
+                          disabled={isDaySaving || !dayPublishChecklist.requiredReady}
+                          className="rounded-md border border-emerald-400/60 bg-emerald-600/85 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-45"
+                        >
+                          {isDaySaving
+                            ? "Guardando..."
+                            : editingDayId
+                              ? "Actualizar Día"
+                              : "Guardar Día"}
+                        </button>
+                      </div>
+                    </div>
+
+                    {lastRemovedBlock && (
+                      <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-amber-300/35 bg-amber-500/12 px-2.5 py-2 text-xs text-amber-100">
+                        <span>
+                          Bloque eliminado. Puedes deshacer dentro de{" "}
+                          {Math.round(BLOCK_DELETE_UNDO_WINDOW_MS / 1000)} segundos.
+                        </span>
+                        <button
+                          type="button"
+                          onClick={undoRemoveBlock}
+                          className="rounded border border-amber-300/50 bg-amber-500/20 px-2 py-1 font-semibold text-amber-100 hover:bg-amber-500/30"
+                        >
+                          Deshacer eliminación
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
                   <div className="grid gap-4 md:grid-cols-[110px_minmax(0,1fr)]">
                     <div>
                       <label className="text-xs text-gray-400">Dia #</label>
@@ -2022,7 +2347,10 @@ export default function AdminPanel({
                         type="number"
                         value={dayNumber}
                         min={1}
-                        onChange={(e) => setDayNumber(Number(e.target.value))}
+                        onChange={(e) => {
+                          setDaySaveError(null);
+                          setDayNumber(Number(e.target.value));
+                        }}
                         className="w-full p-2 rounded bg-black border border-gray-600"
                       />
                     </div>
@@ -2033,7 +2361,10 @@ export default function AdminPanel({
                       <input
                         type="text"
                         value={dayTitle}
-                        onChange={(e) => setDayTitle(e.target.value)}
+                        onChange={(e) => {
+                          setDaySaveError(null);
+                          setDayTitle(e.target.value);
+                        }}
                         placeholder="Ej: Introduccion"
                         className="w-full p-2 rounded bg-black border border-gray-600"
                         required
@@ -2047,7 +2378,10 @@ export default function AdminPanel({
                     </label>
                     <textarea
                       value={dayDiscussionPrompt}
-                      onChange={(e) => setDayDiscussionPrompt(e.target.value)}
+                      onChange={(e) => {
+                        setDaySaveError(null);
+                        setDayDiscussionPrompt(e.target.value);
+                      }}
                       placeholder="Ej: ¿Qué aplicarías mañana de este día y por qué?"
                       rows={3}
                       className="mt-1 w-full rounded bg-black border border-gray-600 p-2 text-sm"
@@ -2055,6 +2389,49 @@ export default function AdminPanel({
                     <p className="mt-1 text-[11px] text-gray-500">
                       Si lo dejas vacío, el foro usará un prompt automático.
                     </p>
+                  </div>
+
+                  <div className="rounded-lg border border-[var(--ast-sky)]/30 bg-[rgba(3,11,32,0.72)] p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-cyan-200/90">
+                        Checklist de publicación
+                      </p>
+                      <p className="text-xs text-slate-300">
+                        Requeridos completados:{" "}
+                        <span className="font-semibold text-white">
+                          {
+                            dayPublishChecklist.checks.filter(
+                              (check) => check.required && check.done,
+                            ).length
+                          }
+                        </span>
+                        /
+                        {
+                          dayPublishChecklist.checks.filter((check) => check.required)
+                            .length
+                        }
+                      </p>
+                    </div>
+                    <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
+                      {dayPublishChecklist.checks.map((check) => (
+                        <div
+                          key={check.id}
+                          className={`rounded border px-2.5 py-2 text-xs ${
+                            check.done
+                              ? "border-emerald-300/40 bg-emerald-500/12 text-emerald-100"
+                              : check.required
+                                ? "border-rose-300/45 bg-rose-500/12 text-rose-100"
+                                : "border-slate-500/45 bg-slate-700/20 text-slate-200"
+                          }`}
+                        >
+                          <span className="font-semibold">
+                            {check.done ? "Listo" : check.required ? "Pendiente" : "Opcional"}
+                          </span>
+                          {" · "}
+                          {check.label}
+                        </div>
+                      ))}
+                    </div>
                   </div>
 
                   <div className="border border-gray-700 rounded-lg p-4 space-y-4 bg-gray-900/60">
@@ -2115,6 +2492,26 @@ export default function AdminPanel({
                         >
                           + Quiz
                         </button>
+                        <div className="ml-1 flex items-center gap-1 rounded border border-cyan-400/35 bg-cyan-500/10 px-1.5 py-1">
+                          <select
+                            value={selectedTemplateId}
+                            onChange={(event) => setSelectedTemplateId(event.target.value)}
+                            className="rounded border border-cyan-300/30 bg-black/40 px-2 py-1 text-xs text-cyan-100"
+                          >
+                            {dayBlockTemplates.map((template) => (
+                              <option key={template.id} value={template.id}>
+                                {template.label}
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            type="button"
+                            onClick={applyTemplate}
+                            className="rounded border border-cyan-300/55 bg-cyan-500/25 px-2 py-1 text-xs font-semibold text-cyan-100 hover:bg-cyan-500/35"
+                          >
+                            Aplicar plantilla
+                          </button>
+                        </div>
                         <div className="ml-1 h-5 w-px bg-gray-700" />
                         <button
                           type="button"
@@ -2135,8 +2532,15 @@ export default function AdminPanel({
                           Rehacer
                         </button>
                         <span className="text-[11px] text-gray-400">
-                          Ctrl/Cmd + Z
+                          {dayShortcutKeyLabel} + Z
                         </span>
+                        <button
+                          type="button"
+                          onClick={() => setShowStudentPreview((prev) => !prev)}
+                          className="rounded border border-indigo-300/50 bg-indigo-500/18 px-3 py-1 text-xs font-semibold text-indigo-100 hover:bg-indigo-500/28"
+                        >
+                          {showStudentPreview ? "Ocultar preview" : "Mostrar preview"}
+                        </button>
                       </div>
                     </div>
 
@@ -2187,6 +2591,82 @@ export default function AdminPanel({
                       </div>
                     </div>
 
+                    <div className="grid gap-3 xl:grid-cols-[280px_minmax(0,1fr)]">
+                      <aside className="space-y-3 rounded-lg border border-cyan-500/28 bg-cyan-500/8 p-2.5">
+                        <div className="rounded-lg border border-indigo-400/35 bg-indigo-500/10 p-2.5">
+                          <p className="text-[11px] uppercase tracking-[0.16em] text-indigo-100/90">
+                            Resumen del lab
+                          </p>
+                          <p className="mt-1 text-sm font-semibold text-slate-100">
+                            {selectedLabData?.title ?? "Lab sin seleccionar"}
+                          </p>
+                          <p className="mt-1 text-xs leading-relaxed text-slate-300/85">
+                            {selectedLabData?.description?.trim() ||
+                              "Este lab no tiene resumen todavía. Puedes agregarlo en la pestaña Labs > Editar texto."}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-[11px] uppercase tracking-[0.16em] text-cyan-200/85">
+                            Mapa del día
+                          </p>
+                          <p className="mt-1 text-xs text-slate-300/85">
+                            Selecciona un bloque para editarlo en el panel derecho.
+                          </p>
+                        </div>
+                        <div className="space-y-2">
+                          {visibleBuilderBlocks.map((item, itemIndex) => {
+                            const itemGroup =
+                              item.group ?? getDefaultDayBlockGroup(item.type);
+                            const itemRole = normalizeBlockRole(item.role, itemGroup);
+                            const isActive = activeBuilderBlockId === item.id;
+                            return (
+                              <button
+                                key={item.id}
+                                type="button"
+                                onClick={() => setFocusedBlockId(item.id)}
+                                className={`w-full rounded border px-2.5 py-2 text-left transition ${
+                                  isActive
+                                    ? "border-cyan-300/65 bg-cyan-500/18 text-cyan-50"
+                                    : "border-slate-600/70 bg-black/35 text-slate-200 hover:border-cyan-300/50 hover:bg-cyan-500/12"
+                                }`}
+                              >
+                                <p className="text-[11px] uppercase tracking-wider text-slate-300">
+                                  Bloque {itemIndex + 1}
+                                </p>
+                                <p className="mt-0.5 text-sm font-semibold">
+                                  {getBlockTypeLabel(item.type)}
+                                </p>
+                                <p className="mt-1 text-[11px] text-slate-300/90">
+                                  {itemGroup === "resource"
+                                    ? "Recurso principal"
+                                    : "Reto del día"}
+                                  {itemRole === "primary" ? " · Ruta" : ""}
+                                </p>
+                              </button>
+                            );
+                          })}
+                          {visibleBuilderBlocks.length === 0 && (
+                            <p className="rounded border border-dashed border-slate-600 bg-black/30 p-2 text-xs text-slate-300">
+                              No hay bloques para este preset.
+                            </p>
+                          )}
+                        </div>
+                        {showStudentPreview && activeBuilderBlock && (
+                          <div className="rounded-lg border border-indigo-400/35 bg-indigo-500/10 p-2.5">
+                            <p className="text-[11px] uppercase tracking-[0.16em] text-indigo-100/90">
+                              Preview alumno
+                            </p>
+                            <p className="mt-1 text-[11px] text-slate-300/85">
+                              Así verá este bloque el participante.
+                            </p>
+                            <div className="mt-2 rounded border border-slate-600/70 bg-[#031330] p-2">
+                              {renderStudentBlockPreview(activeBuilderBlock)}
+                            </div>
+                          </div>
+                        )}
+                      </aside>
+
+                      <div className="space-y-3">
                     {blocks.map((block, index) => (
                       (() => {
                         const blockGroup = block.group ?? getDefaultDayBlockGroup(block.type);
@@ -2194,7 +2674,9 @@ export default function AdminPanel({
                         const isVisibleInPreset =
                           dayBlocksViewPreset === "all" ||
                           dayBlocksViewPreset === blockGroup;
-                        if (!isVisibleInPreset) return null;
+                        const isVisibleInFocus =
+                          !activeBuilderBlockId || activeBuilderBlockId === block.id;
+                        if (!isVisibleInPreset || !isVisibleInFocus) return null;
 
                         return (
                       <div
@@ -2223,6 +2705,20 @@ export default function AdminPanel({
                               </div>
                             </div>
                             <div className="flex gap-2">
+                              <button
+                                type="button"
+                                className={`px-2 py-1 text-xs rounded border ${
+                                  activeBuilderBlockId === block.id
+                                    ? "border-cyan-300/70 bg-cyan-500/20 text-cyan-100"
+                                    : "border-gray-600 bg-black/35 text-gray-200 hover:border-cyan-300/55"
+                                }`}
+                                onClick={() => {
+                                  setFocusedBlockId(block.id);
+                                }}
+                                title="Editar este bloque en foco"
+                              >
+                                {activeBuilderBlockId === block.id ? "Activo" : "Enfocar"}
+                              </button>
                               <button
                                 type="button"
                                 className="px-2 py-1 text-xs rounded bg-gray-700 hover:bg-gray-600 disabled:opacity-40"
@@ -2534,14 +3030,35 @@ export default function AdminPanel({
                         )}
 
                         <div className="flex justify-end border-t border-gray-700/70 pt-2">
-                          <button
-                            type="button"
-                            className="px-3 py-1 text-xs rounded border border-red-700/70 bg-red-950/45 text-red-200 hover:bg-red-900/55 disabled:opacity-40"
-                            onClick={() => removeBlock(block.id)}
-                            disabled={blocks.length === 1}
-                          >
-                            Eliminar bloque
-                          </button>
+                          {pendingDeleteBlockId === block.id ? (
+                            <div className="flex flex-wrap items-center gap-2 rounded border border-red-500/45 bg-red-950/25 px-2.5 py-1.5 text-[11px]">
+                              <span className="text-red-100">¿Eliminar este bloque?</span>
+                              <button
+                                type="button"
+                                className="rounded border border-gray-500/60 bg-black/30 px-2 py-1 text-gray-200 hover:border-gray-400"
+                                onClick={() => setPendingDeleteBlockId(null)}
+                              >
+                                Cancelar
+                              </button>
+                              <button
+                                type="button"
+                                className="rounded border border-red-500/70 bg-red-700/75 px-2 py-1 font-semibold text-red-50 hover:bg-red-600"
+                                onClick={() => removeBlock(block.id)}
+                                disabled={blocks.length === 1}
+                              >
+                                Sí, eliminar
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              className="px-3 py-1 text-xs rounded border border-red-700/70 bg-red-950/45 text-red-200 hover:bg-red-900/55 disabled:opacity-40"
+                              onClick={() => setPendingDeleteBlockId(block.id)}
+                              disabled={blocks.length === 1}
+                            >
+                              Eliminar bloque
+                            </button>
+                          )}
                         </div>
                       </div>
                         );
@@ -2557,25 +3074,72 @@ export default function AdminPanel({
                           No hay bloques en esta sección todavía.
                         </p>
                       )}
+                      </div>
+                  </div>
                   </div>
 
                   <div className="flex gap-3">
                     <button
                       type="submit"
-                      className="flex-1 bg-green-600 hover:bg-green-700 py-2 rounded font-bold"
+                      disabled={isDaySaving || !dayPublishChecklist.requiredReady}
+                      className="flex-1 rounded bg-green-600 py-2 font-bold transition hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-45"
                     >
-                      {editingDayId ? "Actualizar Dia" : "Guardar Dia"}
+                      {isDaySaving
+                        ? "Guardando..."
+                        : editingDayId
+                          ? "Actualizar Dia"
+                          : "Guardar Dia"}
                     </button>
                     {editingDayId && (
                       <button
                         type="button"
-                        onClick={() => void deleteDay()}
-                        className="px-4 py-2 rounded font-bold bg-red-700 hover:bg-red-600"
+                        onClick={() => {
+                          setShowDeleteDayConfirm((prev) => !prev);
+                          setDeleteDayConfirmValue("");
+                        }}
+                        className="px-4 py-2 rounded font-bold bg-red-700 transition hover:bg-red-600"
                       >
                         Eliminar Dia
                       </button>
                     )}
                   </div>
+                  {showDeleteDayConfirm && editingDayId && (
+                    <div className="rounded-lg border border-red-400/45 bg-red-950/25 p-3 text-sm text-red-100">
+                      <p className="font-semibold">Confirmación de borrado</p>
+                      <p className="mt-1 text-xs text-red-100/85">
+                        Escribe <span className="font-bold">{dayDeletePhrase}</span> para confirmar.
+                      </p>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <input
+                          type="text"
+                          value={deleteDayConfirmValue}
+                          onChange={(event) => setDeleteDayConfirmValue(event.target.value)}
+                          placeholder={dayDeletePhrase}
+                          className="min-w-[240px] flex-1 rounded border border-red-300/45 bg-black/35 px-2 py-1 text-sm text-white"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => void deleteDay()}
+                          disabled={
+                            deleteDayConfirmValue.trim() !== dayDeletePhrase || isDeletingDay
+                          }
+                          className="rounded bg-red-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-45"
+                        >
+                          {isDeletingDay ? "Eliminando..." : "Confirmar eliminación"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowDeleteDayConfirm(false);
+                            setDeleteDayConfirmValue("");
+                          }}
+                          className="rounded border border-gray-500/70 bg-black/25 px-3 py-1.5 text-xs text-gray-200 hover:border-gray-400"
+                        >
+                          Cancelar
+                        </button>
+                      </div>
+                    </div>
+                  )}
                   {dayMsg && (
                     <p className="text-center text-yellow-300 mt-2">{dayMsg}</p>
                   )}
@@ -3051,6 +3615,356 @@ export default function AdminPanel({
       </div>
     </div>
   );
+}
+
+function buildDayDraftSignature(input: {
+  dayNumber: number;
+  dayTitle: string;
+  dayDiscussionPrompt: string;
+  blocks: DayBlock[];
+}): string {
+  return JSON.stringify({
+    dayNumber: input.dayNumber,
+    dayTitle: input.dayTitle.trim(),
+    dayDiscussionPrompt: input.dayDiscussionPrompt.trim(),
+    blocks: input.blocks,
+  });
+}
+
+function getCurrentTimestamp(): number {
+  return Date.now();
+}
+
+function normalizeDayBlocksForSave(blocks: DayBlock[]): DayBlock[] {
+  return blocks
+    .map((block) => {
+      const group: DayBlockGroup = block.group ?? getDefaultDayBlockGroup(block.type);
+      const role: DayBlockRole = normalizeBlockRole(block.role, group);
+
+      if (block.type === "text") {
+        const normalizedText = normalizeRichTextInput(block.text ?? "");
+        return {
+          ...block,
+          group,
+          role,
+          text: normalizedText,
+        };
+      }
+
+      if (block.type === "checklist") {
+        const items = (block.items ?? [])
+          .map((item) => ({
+            id: item.id,
+            text: item.text.trim(),
+          }))
+          .filter((item) => Boolean(item.text));
+
+        return {
+          ...block,
+          group,
+          role,
+          title: block.title?.trim() ?? "",
+          items,
+        };
+      }
+
+      if (block.type === "quiz") {
+        const questions = (block.questions ?? [])
+          .map((question) => {
+            const options = (question.options ?? [])
+              .map((option) => option.trim())
+              .filter(Boolean);
+
+            const hasValidCorrect =
+              typeof question.correctIndex === "number" &&
+              question.correctIndex >= 0 &&
+              question.correctIndex < options.length;
+
+            return {
+              id: question.id,
+              prompt: question.prompt.trim(),
+              options,
+              correctIndex: hasValidCorrect ? question.correctIndex : null,
+              explanation: question.explanation?.trim() ?? "",
+            };
+          })
+          .filter((question) => Boolean(question.prompt) && question.options.length >= 2);
+
+        return {
+          ...block,
+          group,
+          role,
+          title: block.title?.trim() ?? "",
+          questions,
+        };
+      }
+
+      return {
+        ...block,
+        group,
+        role,
+        url: block.url?.trim() ?? "",
+        caption: block.caption?.trim() ?? "",
+      };
+    })
+    .filter((block) => {
+      if (block.type === "text") return hasRichTextContent(block.text ?? "");
+      if (block.type === "checklist") return (block.items?.length ?? 0) > 0;
+      if (block.type === "quiz") return (block.questions?.length ?? 0) > 0;
+      return Boolean(block.url);
+    });
+}
+
+function buildDayPublishChecklist(
+  dayTitle: string,
+  dayDiscussionPrompt: string,
+  blocks: DayBlock[],
+): DayPublishChecklist {
+  const normalizedBlocks = normalizeDayBlocksForSave(blocks);
+  const resourceBlocks = normalizedBlocks.filter(
+    (block) => (block.group ?? getDefaultDayBlockGroup(block.type)) === "resource",
+  );
+  const challengeBlocks = normalizedBlocks.filter(
+    (block) => (block.group ?? getDefaultDayBlockGroup(block.type)) === "challenge",
+  );
+  const hasExplicitPrimary = resourceBlocks.some((block) => block.role === "primary");
+
+  const checks: DayPublishCheck[] = [
+    {
+      id: "title",
+      label: "Título del día definido",
+      done: dayTitle.trim().length > 0,
+      required: true,
+    },
+    {
+      id: "content",
+      label: "Al menos 1 bloque con contenido",
+      done: normalizedBlocks.length > 0,
+      required: true,
+    },
+    {
+      id: "resource",
+      label: "Incluye bloque en Recurso principal",
+      done: resourceBlocks.length > 0,
+      required: true,
+    },
+    {
+      id: "primary",
+      label: "Marca el bloque principal (ruta)",
+      done: hasExplicitPrimary,
+      required: false,
+    },
+    {
+      id: "challenge",
+      label: "Incluye bloque en Reto del día",
+      done: challengeBlocks.length > 0,
+      required: false,
+    },
+    {
+      id: "forum_prompt",
+      label: "Prompt del foro personalizado",
+      done: dayDiscussionPrompt.trim().length > 0,
+      required: false,
+    },
+  ];
+
+  return {
+    checks,
+    requiredReady: checks.filter((check) => check.required).every((check) => check.done),
+    normalizedBlocks,
+    resourceBlocksCount: resourceBlocks.length,
+    challengeBlocksCount: challengeBlocks.length,
+  };
+}
+
+function createVideoTextChallengeTemplateBlocks(): DayBlock[] {
+  const primaryVideo = createBlock("video");
+  const supportText = createBlock("text");
+  const challengeText = createBlock("text");
+  const challengeChecklist = createBlock("checklist");
+
+  primaryVideo.group = "resource";
+  primaryVideo.role = "primary";
+  primaryVideo.url = "";
+  primaryVideo.caption = "Título o referencia del recurso principal";
+
+  supportText.group = "resource";
+  supportText.role = "support";
+  supportText.text =
+    "<p><strong>Objetivo del día:</strong> [define aquí el objetivo].</p><p><strong>Contexto:</strong> [explica por qué este recurso importa].</p>";
+
+  challengeText.group = "challenge";
+  challengeText.role = "support";
+  challengeText.text =
+    "<p><strong>Reto del día:</strong> [describe la actividad práctica].</p><p><strong>Entrega esperada:</strong> [indica qué debe publicar el alumno].</p>";
+
+  if (challengeChecklist.type === "checklist") {
+    challengeChecklist.group = "challenge";
+    challengeChecklist.title = "Checklist de entrega";
+    challengeChecklist.items = [
+      createChecklistItem("Criterio 1: [completa criterio]"),
+      createChecklistItem("Criterio 2: [completa criterio]"),
+      createChecklistItem("Criterio 3: [completa criterio]"),
+    ];
+  }
+
+  return [primaryVideo, supportText, challengeText, challengeChecklist];
+}
+
+function createReadingQuizTemplateBlocks(): DayBlock[] {
+  const principalReading = createBlock("text");
+  const supportFile = createBlock("file");
+  const challengeQuiz = createBlock("quiz");
+
+  principalReading.group = "resource";
+  principalReading.role = "primary";
+  principalReading.text =
+    "<h3>Lectura base</h3><p>[Escribe aquí la lectura o instrucciones principales del día].</p>";
+
+  supportFile.group = "resource";
+  supportFile.role = "support";
+  supportFile.caption = "Recurso descargable (opcional)";
+  supportFile.url = "";
+
+  if (challengeQuiz.type === "quiz") {
+    challengeQuiz.group = "challenge";
+    challengeQuiz.title = "Verificación del día";
+    challengeQuiz.questions = [
+      {
+        id: createQuizQuestion().id,
+        prompt: "Pregunta 1: [escribe la pregunta]",
+        options: ["Opción A", "Opción B", "Opción C"],
+        correctIndex: 0,
+        explanation: "Explicación opcional para retroalimentación.",
+      },
+    ];
+  }
+
+  return [principalReading, supportFile, challengeQuiz];
+}
+
+function createMediaChecklistTemplateBlocks(): DayBlock[] {
+  const primaryMedia = createBlock("video");
+  const guideText = createBlock("text");
+  const challengeText = createBlock("text");
+  const challengeChecklist = createBlock("checklist");
+
+  primaryMedia.group = "resource";
+  primaryMedia.role = "primary";
+  primaryMedia.url = "";
+  primaryMedia.caption = "Recurso audiovisual principal";
+
+  guideText.group = "resource";
+  guideText.role = "support";
+  guideText.text =
+    "<p><strong>Guía rápida:</strong> [pasos o contexto clave para el alumno].</p>";
+
+  challengeText.group = "challenge";
+  challengeText.role = "support";
+  challengeText.text =
+    "<p><strong>Actividad:</strong> [acción concreta que debe realizar el alumno].</p>";
+
+  if (challengeChecklist.type === "checklist") {
+    challengeChecklist.group = "challenge";
+    challengeChecklist.title = "Pasos de la actividad";
+    challengeChecklist.items = [
+      createChecklistItem("Paso 1"),
+      createChecklistItem("Paso 2"),
+      createChecklistItem("Paso 3"),
+    ];
+  }
+
+  return [primaryMedia, guideText, challengeText, challengeChecklist];
+}
+
+function renderStudentBlockPreview(block: DayBlock) {
+  if (block.type === "text") {
+    const html = block.text?.trim();
+    if (!html) {
+      return <p className="text-xs text-slate-400">Este bloque aún no tiene contenido.</p>;
+    }
+    return (
+      <div
+        className="prose prose-invert max-w-none text-xs leading-relaxed [&_p]:my-2 [&_h3]:my-2"
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
+    );
+  }
+
+  if (block.type === "checklist") {
+    const items = (block.items ?? []).filter((item) => item.text.trim().length > 0);
+    return (
+      <div className="space-y-2 text-xs">
+        {block.title && <p className="font-semibold text-emerald-100">{block.title}</p>}
+        {items.length > 0 ? (
+          <ul className="space-y-1 text-slate-200">
+            {items.slice(0, 5).map((item) => (
+              <li key={item.id} className="flex items-start gap-1.5">
+                <span className="mt-[3px] h-1.5 w-1.5 rounded-full bg-emerald-300" />
+                <span>{item.text}</span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-slate-400">Agrega puntos al checklist para previsualizar.</p>
+        )}
+      </div>
+    );
+  }
+
+  if (block.type === "quiz") {
+    const question = (block.questions ?? []).find((item) => item.prompt.trim().length > 0);
+    if (!question) {
+      return <p className="text-xs text-slate-400">Agrega al menos una pregunta.</p>;
+    }
+    return (
+      <div className="space-y-2 text-xs">
+        {block.title && <p className="font-semibold text-cyan-100">{block.title}</p>}
+        <p className="font-medium text-slate-100">{question.prompt}</p>
+        <ol className="space-y-1 text-slate-300">
+          {question.options.filter(Boolean).slice(0, 4).map((option, index) => (
+            <li key={`${question.id}_${index}`}>{index + 1}. {option}</li>
+          ))}
+        </ol>
+      </div>
+    );
+  }
+
+  if (block.type === "video") {
+    const youtubeId = extractYouTubeVideoId(block.url);
+    if (youtubeId) {
+      return (
+        <div className="space-y-2">
+          <iframe
+            className="h-32 w-full rounded border border-slate-600/80"
+            src={`https://www.youtube.com/embed/${youtubeId}`}
+            title="Preview video"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            allowFullScreen
+          />
+          {block.caption && <p className="text-xs text-slate-300">{block.caption}</p>}
+        </div>
+      );
+    }
+  }
+
+  if (block.url?.trim()) {
+    return (
+      <div className="space-y-1 text-xs">
+        <p className="font-medium text-slate-100">{block.caption || getBlockTypeLabel(block.type)}</p>
+        <a
+          href={block.url}
+          target="_blank"
+          rel="noreferrer"
+          className="break-all text-cyan-200 underline hover:text-cyan-100"
+        >
+          {block.url}
+        </a>
+      </div>
+    );
+  }
+
+  return <p className="text-xs text-slate-400">Carga archivo o URL para ver la vista previa.</p>;
 }
 
 function normalizeBlockRole(

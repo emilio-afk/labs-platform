@@ -9,6 +9,7 @@ import {
 import { sanitizeRichText, stripRichText } from "@/utils/richText";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import VideoPlayer from "./VideoPlayer";
 import ProgressButton from "./ProgressButton";
 import Forum from "./Forum";
@@ -40,6 +41,23 @@ type DayStateApiResponse = {
     quizAnswers?: unknown;
   } | null;
   error?: string;
+};
+
+type ChallengeGuideStepId = "scan" | "filter" | "publish";
+
+type ChallengeGuideStep = {
+  id: ChallengeGuideStepId;
+  label: string;
+};
+
+type WorkflowStepId = "resource" | "challenge" | "forum";
+
+type WorkflowStep = {
+  id: WorkflowStepId;
+  label: string;
+  done: boolean;
+  helperText: string;
+  onClick: () => void;
 };
 
 const EMPTY_DAY_STATE: DayLocalState = {
@@ -85,15 +103,18 @@ export default function LabContent({
   const [videoDone, setVideoDone] = useState(
     () => initialCompleted || !requiresWatch,
   );
-  const [resourceCollapsed, setResourceCollapsed] = useState(false);
-  const [challengeCollapsed, setChallengeCollapsed] = useState(false);
-  const [forumCollapsed, setForumCollapsed] = useState(false);
+  const [resourceCollapsed, setResourceCollapsed] = useState(true);
+  const [challengeCollapsed, setChallengeCollapsed] = useState(true);
+  const [forumCollapsed, setForumCollapsed] = useState(true);
   const [hasUserForumComment, setHasUserForumComment] = useState(false);
-  const tutorialStorageKey = useMemo(
-    () => `astrolab_quick_tutorial_seen_${labId}`,
-    [labId],
+  const [showResourceNarrative, setShowResourceNarrative] = useState(false);
+  const challengeGuideStorageKey = useMemo(
+    () => `astrolab_challenge_guide_${labId}_${currentDay.day_number}`,
+    [currentDay.day_number, labId],
   );
-  const [showQuickTutorial, setShowQuickTutorial] = useState(false);
+  const [challengeGuideChecks, setChallengeGuideChecks] = useState<
+    Record<ChallengeGuideStepId, boolean>
+  >({ scan: false, filter: false, publish: false });
 
   const localStateKey = useMemo(
     () => `astrolab_day_state_${labId}_${currentDay.day_number}`,
@@ -116,6 +137,8 @@ export default function LabContent({
   const [revealedQuizzes, setRevealedQuizzes] = useState<Record<string, boolean>>({});
   const [, setCloudSyncStatus] = useState<CloudSyncStatus>("loading");
   const [bootCompleted, setBootCompleted] = useState(false);
+  const [routeMounted, setRouteMounted] = useState(false);
+  const [heroRouteSlot, setHeroRouteSlot] = useState<HTMLElement | null>(null);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -220,18 +243,54 @@ export default function LabContent({
   ]);
 
   useEffect(() => {
+    setShowResourceNarrative(false);
+  }, [currentDay.id]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    setRouteMounted(true);
+    setHeroRouteSlot(document.getElementById("day-route-hero-slot"));
+  }, [currentDay.id]);
+
+  useEffect(() => {
     if (typeof window === "undefined") return;
-    const hasSeenTutorial = window.localStorage.getItem(tutorialStorageKey) === "1";
-    if (!hasSeenTutorial) {
-      setShowQuickTutorial(true);
+    const raw = window.localStorage.getItem(challengeGuideStorageKey);
+    if (!raw) {
+      setChallengeGuideChecks({ scan: false, filter: false, publish: false });
+      return;
     }
-  }, [tutorialStorageKey]);
+
+    try {
+      const parsed = JSON.parse(raw) as Partial<
+        Record<ChallengeGuideStepId, unknown>
+      >;
+      setChallengeGuideChecks({
+        scan: Boolean(parsed.scan),
+        filter: Boolean(parsed.filter),
+        publish: Boolean(parsed.publish),
+      });
+    } catch {
+      setChallengeGuideChecks({ scan: false, filter: false, publish: false });
+    }
+  }, [challengeGuideStorageKey]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(
+      challengeGuideStorageKey,
+      JSON.stringify(challengeGuideChecks),
+    );
+  }, [challengeGuideChecks, challengeGuideStorageKey]);
 
   const resourceBlocks = blocks.filter(
     (block) => block.group !== "challenge",
   );
   const challengeBlocks = blocks.filter(
     (block) => block.group === "challenge",
+  );
+  const challengeGuideItems = useMemo(
+    () => buildChallengeGuideItems(challengeBlocks),
+    [challengeBlocks],
   );
   const hasPrimaryVideo = Boolean(
     primaryResourceBlock?.block.type === "video" && primaryResourceVideoId,
@@ -240,12 +299,6 @@ export default function LabContent({
     hasPrimaryVideo || resourceBlocks.length > 0 || challengeBlocks.length === 0;
   const showChallengeSection = challengeBlocks.length > 0;
   const estimatedMinutes = estimateDayMinutes(blocks, hasPrimaryVideo);
-  const dayObjective = buildDayObjective(resourceBlocks, challengeBlocks, currentDay.day_number);
-  const nextAction = buildNextAction({
-    requiresWatch,
-    videoDone,
-    hasChallengeSection: showChallengeSection,
-  });
   const keyTakeaways = buildKeyTakeaways(resourceBlocks);
   const resourceTextLines = useMemo(
     () => getResourceTextLines(resourceBlocks),
@@ -267,6 +320,15 @@ export default function LabContent({
     resourceTextLines.length >= 3 || resourceTextLength >= 320;
   const showTakeawayPanel =
     hasEnoughContentForSummary && filteredKeyTakeaways.length > 0;
+  const resourceNarrative = useMemo(
+    () => resourceTextLines.join(" "),
+    [resourceTextLines],
+  );
+  const hasLongNarrative = resourceNarrative.length > 260;
+  const resourceNarrativePreview = useMemo(
+    () => limitText(resourceNarrative, 260),
+    [resourceNarrative],
+  );
   const normalizedTakeaways = useMemo(
     () => filteredKeyTakeaways.map((item) => normalizeSummaryText(item)).filter(Boolean),
     [filteredKeyTakeaways],
@@ -294,6 +356,35 @@ export default function LabContent({
       return !isRepeatedSummary;
     });
   }, [normalizedTakeaways, resourceBlocks, showTakeawayPanel]);
+  const primaryResourceVideoBlock = useMemo(
+    () =>
+      resourceBlocksForRender.find(
+        (block) => block.id === primaryResourceBlockId && block.type === "video",
+      ) ?? null,
+    [primaryResourceBlockId, resourceBlocksForRender],
+  );
+  const downloadableResourceBlocks = useMemo(
+    () => resourceBlocksForRender.filter((block) => block.type === "file"),
+    [resourceBlocksForRender],
+  );
+  const useResourceSidebarLayout =
+    Boolean(primaryResourceVideoBlock) && downloadableResourceBlocks.length > 0;
+  const remainingResourceBlocks = useMemo(() => {
+    if (!useResourceSidebarLayout || !primaryResourceVideoBlock) {
+      return resourceBlocksForRender;
+    }
+
+    const excludedIds = new Set<string>([
+      primaryResourceVideoBlock.id,
+      ...downloadableResourceBlocks.map((block) => block.id),
+    ]);
+    return resourceBlocksForRender.filter((block) => !excludedIds.has(block.id));
+  }, [
+    downloadableResourceBlocks,
+    primaryResourceVideoBlock,
+    resourceBlocksForRender,
+    useResourceSidebarLayout,
+  ]);
   const discussionPrompt =
     customDiscussionPrompt || buildDiscussionPrompt(challengeBlocks);
 
@@ -307,11 +398,6 @@ export default function LabContent({
 
   const quizBlocks = blocks.filter(
     (block) => block.type === "quiz" && (block.questions?.length ?? 0) > 0,
-  );
-
-  const totalChecklistItems = checklistBlocks.reduce(
-    (sum, block) => sum + (block.items?.length ?? 0),
-    0,
   );
 
   const completedChecklistItems = checklistBlocks.reduce((sum, block) => {
@@ -362,12 +448,16 @@ export default function LabContent({
     showChallengeSection || checklistBlocks.length > 0 || quizBlocks.length > 0;
   const hasForumStep = !previewMode;
   const videoStepDone = videoDone || !requiresWatch;
+  const challengeGuideCoreDone = challengeGuideItems
+    .slice(0, 2)
+    .every((item) => challengeGuideChecks[item.id]);
   const challengeStepDone =
     !hasChallengeWork ||
     completedChecklistItems > 0 ||
     hasQuizInteraction ||
     hasChallengeNotes ||
-    hasUserForumComment;
+    hasUserForumComment ||
+    challengeGuideCoreDone;
   const forumStepDone = !hasForumStep || hasUserForumComment;
 
   const scrollToSection = useCallback((id: string) => {
@@ -392,47 +482,38 @@ export default function LabContent({
     requestAnimationFrame(() => scrollToSection("day-forum"));
   }, [scrollToSection]);
 
-  const openQuickTutorial = useCallback(() => {
-    setShowQuickTutorial(true);
-  }, []);
+  const workflowSteps = useMemo<WorkflowStep[]>(() => {
+    const steps: WorkflowStep[] = [
+      {
+        id: "resource",
+        label: primaryRouteLabel,
+        done: videoStepDone,
+        helperText: "Revisa el recurso base para alinear criterio antes de avanzar.",
+        onClick: () => goToResource(),
+      },
+    ];
 
-  const closeQuickTutorial = useCallback(() => {
-    setShowQuickTutorial(false);
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(tutorialStorageKey, "1");
-    }
-  }, [tutorialStorageKey]);
-
-  const primaryAction = useMemo(() => {
-    if (!videoStepDone) {
-      return {
-        label: "Ver recurso principal",
-        description: "Completa el video para desbloquear el cierre del día.",
-        onClick: goToResource,
-      };
-    }
-
-    if (!challengeStepDone && hasChallengeWork) {
-      return {
+    if (hasChallengeWork) {
+      steps.push({
+        id: "challenge",
         label: "Resolver reto",
-        description: "Sigue los pasos del reto para activar tu avance.",
-        onClick: goToChallenge,
-      };
+        done: challengeStepDone,
+        helperText: "Aplica lo aprendido en una acción concreta del día.",
+        onClick: () => goToChallenge(),
+      });
     }
 
-    if (!forumStepDone && hasForumStep) {
-      return {
+    if (hasForumStep) {
+      steps.push({
+        id: "forum",
         label: "Publicar en foro",
-        description: "Comparte tu resultado para cerrar el flujo de aprendizaje.",
-        onClick: goToForum,
-      };
+        done: forumStepDone,
+        helperText: "Comparte tu síntesis para cerrar el aprendizaje.",
+        onClick: () => goToForum(),
+      });
     }
 
-    return {
-      label: "Repasar recursos",
-      description: "Todo va bien. Puedes reforzar con los recursos descargables.",
-      onClick: goToResource,
-    };
+    return steps;
   }, [
     challengeStepDone,
     forumStepDone,
@@ -441,8 +522,39 @@ export default function LabContent({
     goToResource,
     hasChallengeWork,
     hasForumStep,
+    primaryRouteLabel,
     videoStepDone,
   ]);
+  const activeWorkflowStepId =
+    workflowSteps.find((step) => !step.done)?.id ?? workflowSteps[workflowSteps.length - 1]?.id;
+  const activeWorkflowStep =
+    workflowSteps.find((step) => step.id === activeWorkflowStepId) ?? workflowSteps[0];
+
+  const sectionStepMeta = useMemo(() => {
+    const meta = new Map<
+      WorkflowStepId,
+      { order: number; status: "Listo" | "Actual" | "Pendiente"; isActive: boolean }
+    >();
+
+    workflowSteps.forEach((step, index) => {
+      const isActive = step.id === activeWorkflowStepId;
+      meta.set(step.id, {
+        order: index + 1,
+        status: step.done ? "Listo" : isActive ? "Actual" : "Pendiente",
+        isActive,
+      });
+    });
+
+    return meta;
+  }, [activeWorkflowStepId, workflowSteps]);
+
+  const resourceStepMeta = sectionStepMeta.get("resource");
+  const challengeStepMeta = sectionStepMeta.get("challenge");
+  const forumStepMeta = sectionStepMeta.get("forum");
+
+  const toggleChallengeGuideStep = (stepId: ChallengeGuideStepId) => {
+    setChallengeGuideChecks((prev) => ({ ...prev, [stepId]: !prev[stepId] }));
+  };
 
   const handleForumActivityChange = useCallback(
     ({ hasUserComment }: { commentCount: number; hasUserComment: boolean }) => {
@@ -461,21 +573,12 @@ export default function LabContent({
   const renderProgressButton = () => {
     if (previewMode) return null;
     return (
-      <div className="space-y-2">
-        <div className={videoDone ? "opacity-100" : "opacity-20 pointer-events-none"}>
-          <ProgressButton
-            labId={labId}
-            dayNumber={currentDay.day_number}
-            initialCompleted={initialCompleted}
-            onCompleted={handleProgressCompleted}
-          />
-        </div>
-        {!videoDone && requiresWatch && (
-          <p className="text-[11px] text-yellow-400/75">
-            Disponible al completar el video principal.
-          </p>
-        )}
-      </div>
+      <ProgressButton
+        labId={labId}
+        dayNumber={currentDay.day_number}
+        initialCompleted={initialCompleted}
+        onCompleted={handleProgressCompleted}
+      />
     );
   };
 
@@ -567,7 +670,6 @@ export default function LabContent({
             <VideoPlayer
               videoId={primaryResourceVideoId}
               onFinished={() => setVideoDone(true)}
-              allowSkip={initialCompleted}
             />
           ) : embeddedVideoId ? (
             <iframe
@@ -746,53 +848,176 @@ export default function LabContent({
     return null;
   };
 
-  const showChecklistSummary = totalChecklistItems > 0;
-  const showQuizSummary = quizBlocks.length > 0;
-  const showProgressPanel = showChecklistSummary || showQuizSummary;
   const showResourcesQuickAccess = resources.length > 1;
+  const dayRoutePanel = (
+    <section
+      id="day-focus"
+      className={
+        heroRouteSlot
+          ? "h-full lg:flex lg:items-center"
+          : "mb-5 rounded-xl border border-[var(--ast-sky)]/24 bg-[linear-gradient(135deg,rgba(8,21,52,0.9),rgba(6,16,40,0.84))] px-3 py-3.5 md:px-4 md:py-4"
+      }
+    >
+      <div
+        className={`space-y-3 ${
+          heroRouteSlot
+            ? "w-full"
+            : ""
+        }`}
+      >
+        <div className="min-w-0">
+          <p className="inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--ast-mint)]/90">
+            <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-[var(--ast-mint)]/90" />
+            Ruta del día
+          </p>
+          <h2 className="mt-0.5 text-lg font-black tracking-tight text-[#e4efff] md:text-[1.72rem]">
+            Ahora: {activeWorkflowStep?.label}
+          </h2>
+          <p className="mt-0.5 max-w-3xl text-[13px] leading-[1.4] text-[#c6daf8]/92 md:text-sm">
+            {activeWorkflowStep?.helperText}
+          </p>
+        </div>
+
+        <div className="min-w-0">
+          <div className="overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <ol className="flex min-w-max items-center gap-1.5">
+              {workflowSteps.map((step, index) => {
+                const isActive = step.id === activeWorkflowStepId;
+                return (
+                  <li key={`workflow_rail_${step.id}`}>
+                    <button
+                      type="button"
+                      onClick={step.onClick}
+                      title={step.label}
+                      className={`cursor-pointer rounded-md border px-2.5 py-1.5 text-left text-[11px] font-semibold whitespace-nowrap transition ${
+                        step.done
+                          ? "border-[var(--ast-mint)]/55 bg-[rgba(4,164,90,0.1)] text-[var(--ast-mint)]"
+                          : isActive
+                            ? "border-[var(--ast-sky)]/62 bg-[rgba(11,38,86,0.42)] text-[#e6f0ff]"
+                            : "border-[var(--ast-sky)]/24 bg-[rgba(6,18,43,0.42)] text-[#a9c1e3] hover:border-[var(--ast-sky)]/46 hover:text-[#dce9ff]"
+                      }`}
+                    >
+                      {index + 1}. {step.label}
+                    </button>
+                  </li>
+                );
+              })}
+            </ol>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
 
   return (
     <>
-      <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
-        <div className="xl:col-span-3 space-y-7">
+      {heroRouteSlot
+        ? createPortal(dayRoutePanel, heroRouteSlot)
+        : routeMounted
+          ? dayRoutePanel
+          : null}
+
+      {showResourcesQuickAccess && (
+        <section
+          aria-label="Recursos rápidos del día"
+          className="mb-5 border-t border-[var(--ast-sky)]/20 pt-3"
+        >
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--ast-sky)]/82">
+            Recursos rápidos
+          </p>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            {resources.map((resource) => (
+              <a
+                key={`quick_resource_${resource.id}`}
+                href={`#resource-${resource.id}`}
+                className="cursor-pointer border-b border-[var(--ast-sky)]/34 px-1 py-0.5 text-sm text-[var(--ast-sky)] transition hover:border-[var(--ast-mint)] hover:text-[var(--ast-mint)]"
+              >
+                {resource.caption?.trim() || "Documento"}
+              </a>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <div className="space-y-5">
           {showResourceSection && (
             <section
               id="day-resource"
-              className={`rounded-2xl border border-[#2a4b7d]/70 bg-[linear-gradient(135deg,rgba(8,18,45,0.96),rgba(5,15,38,0.94))] shadow-[0_14px_34px_rgba(3,8,22,0.45)] transition-all duration-300 ${resourceCollapsed ? "p-3 md:p-4" : "p-6 md:p-8"}`}
+              className={`relative overflow-hidden rounded-2xl border border-[#2d5387]/58 bg-[linear-gradient(160deg,rgba(8,18,45,0.96),rgba(5,15,38,0.94))] shadow-[0_14px_30px_rgba(3,8,22,0.4)] transition-all duration-300 before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-[linear-gradient(90deg,rgba(76,150,255,0.05),rgba(76,150,255,0.65),rgba(76,150,255,0.05))] ${resourceCollapsed ? "p-3 md:p-4" : "p-5 md:p-6"}`}
             >
-              <div className={resourceCollapsed ? "mb-0 min-h-[38px]" : "mb-6"}>
-                <div className="flex items-center justify-between gap-3">
-                  <h2
-                    className={`font-black tracking-tight text-[#d8e7ff] ${resourceCollapsed ? "text-xl" : "text-3xl"}`}
-                  >
-                    Recurso principal del Dia {currentDay.day_number}
-                  </h2>
+              <div className={resourceCollapsed ? "mb-0" : "mb-5 border-b border-[var(--ast-sky)]/18 pb-3"}>
+                <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
+                  <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-3">
+                    {resourceStepMeta && (
+                      <span
+                        className={`mt-0.5 inline-flex h-7 min-w-7 items-center justify-center rounded-full text-[11px] font-bold ${
+                          resourceStepMeta.isActive
+                            ? "bg-[var(--ast-mint)] text-[var(--ast-black)]"
+                            : "bg-[var(--ast-cobalt)]/65 text-[var(--ast-sky)]"
+                        }`}
+                      >
+                        {resourceStepMeta.order}
+                      </span>
+                    )}
+                    <div className="min-w-0">
+                      {resourceStepMeta && (
+                        <p className="inline-flex rounded-full border border-[var(--ast-sky)]/30 bg-[rgba(7,27,63,0.5)] px-2 py-[2px] text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--ast-sky)]/90">
+                          {resourceStepMeta.status}
+                        </p>
+                      )}
+                      <h2
+                        className={`mt-1 font-black tracking-tight text-[#d8e7ff] ${resourceCollapsed ? "text-xl" : "text-[1.9rem] md:text-[2.05rem]"}`}
+                      >
+                        Recurso principal del Dia {currentDay.day_number}
+                      </h2>
+                      {resourceCollapsed && (
+                        <p className="mt-1 text-sm text-[#9bb1d2]">
+                          {resourceBlocksForRender.length} bloques · ~{estimatedMinutes} min
+                        </p>
+                      )}
+                    </div>
+                  </div>
                   <button
                     type="button"
                     onClick={() => setResourceCollapsed((prev) => !prev)}
-                    className="text-[11px] font-semibold uppercase tracking-widest text-[var(--ast-yellow)] hover:text-[#fff3a0]"
+                    className="inline-flex items-center gap-1.5 rounded-full border border-[var(--ast-sky)]/28 bg-[rgba(4,12,31,0.4)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#d8e7ff] transition hover:border-[var(--ast-sky)]/48 hover:text-white"
                   >
-                    {resourceCollapsed ? "Expandir sección" : "Colapsar sección"}
+                    {resourceCollapsed ? "Expandir" : "Colapsar"}
+                    <span aria-hidden="true" className="text-[11px] leading-none">
+                      {resourceCollapsed ? "▾" : "▴"}
+                    </span>
                   </button>
                 </div>
               </div>
 
-              {resourceCollapsed && (
-                <p className="text-xs text-[#95a7c5]">
-                  {resourceBlocksForRender.length} bloques · ~{estimatedMinutes} min
-                </p>
-              )}
-
               {!resourceCollapsed && (
                 <>
-                  {!videoDone && requiresWatch && (
-                    <p className="mb-4 text-xs text-yellow-500/75 animate-pulse">
-                      Seguridad activa: completa el video antes de marcar el progreso.
-                    </p>
+                  {resourceNarrativePreview && !useResourceSidebarLayout && (
+                    <div className="mb-4 border-l-2 border-[var(--ast-sky)]/45 pl-3">
+                      <p className="text-xs uppercase tracking-wider text-[var(--ast-sky)]/90">
+                        Resumen ejecutivo del recurso
+                      </p>
+                      <p className="mt-2 text-sm leading-relaxed text-[var(--ast-bone)]">
+                        {showResourceNarrative || !hasLongNarrative
+                          ? resourceNarrative
+                          : resourceNarrativePreview}
+                      </p>
+                      {hasLongNarrative && (
+                        <button
+                          type="button"
+                          onClick={() => setShowResourceNarrative((prev) => !prev)}
+                          className="mt-2 text-xs font-semibold text-[var(--ast-mint)] hover:underline"
+                        >
+                          {showResourceNarrative
+                            ? "Mostrar versión corta"
+                            : "Ver explicación completa"}
+                        </button>
+                      )}
+                    </div>
                   )}
 
                   {showTakeawayPanel && (
-                    <div className="mb-4 rounded-lg border border-[var(--ast-sky)]/35 bg-[rgba(7,68,168,0.18)] p-3">
+                    <div className="mb-4 border-l-2 border-[var(--ast-mint)]/55 pl-3">
                       <p className="text-xs uppercase tracking-wider text-[var(--ast-sky)]/90">
                         Qué debes captar antes de seguir
                       </p>
@@ -804,17 +1029,68 @@ export default function LabContent({
                     </div>
                   )}
 
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                    {resourceBlocksForRender.length === 0 ? (
-                      <p className="text-[#8ca2c4] lg:col-span-2">
-                        Este dia no tiene bloques en recurso principal todavia.
-                      </p>
-                    ) : (
-                      resourceBlocksForRender.map((block, index) =>
+                  {resourceBlocksForRender.length === 0 ? (
+                    <p className="text-[#8ca2c4]">
+                      Este dia no tiene bloques en recurso principal todavia.
+                    </p>
+                  ) : useResourceSidebarLayout && primaryResourceVideoBlock ? (
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+                        <div className="lg:col-span-2">
+                          {renderDayBlock(primaryResourceVideoBlock, 0, "resource")}
+                        </div>
+                        <aside className="rounded-lg border border-[var(--ast-sky)]/30 bg-[rgba(4,12,31,0.56)] p-3 lg:col-span-1">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--ast-sky)]/85">
+                            Recursos
+                          </p>
+
+                          {resourceNarrativePreview && (
+                            <div className="mt-2 rounded-md border border-[var(--ast-sky)]/28 bg-[rgba(7,27,63,0.4)] p-2.5">
+                              <p className="text-[10px] font-semibold uppercase tracking-[0.13em] text-[var(--ast-sky)]/90">
+                                Resumen ejecutivo
+                              </p>
+                              <p className="mt-1 text-xs leading-relaxed text-[var(--ast-bone)]/90">
+                                {showResourceNarrative || !hasLongNarrative
+                                  ? resourceNarrative
+                                  : resourceNarrativePreview}
+                              </p>
+                              {hasLongNarrative && (
+                                <button
+                                  type="button"
+                                  onClick={() => setShowResourceNarrative((prev) => !prev)}
+                                  className="mt-1.5 text-[11px] font-semibold text-[var(--ast-mint)] hover:underline"
+                                >
+                                  {showResourceNarrative
+                                    ? "Mostrar versión corta"
+                                    : "Ver explicación completa"}
+                                </button>
+                              )}
+                            </div>
+                          )}
+
+                          <div className="mt-3 space-y-3">
+                            {downloadableResourceBlocks.map((block, index) => (
+                              <div key={block.id}>{renderDayBlock(block, index, "resource")}</div>
+                            ))}
+                          </div>
+                        </aside>
+                      </div>
+
+                      {remainingResourceBlocks.length > 0 && (
+                        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                          {remainingResourceBlocks.map((block, index) =>
+                            renderDayBlock(block, index + 1, "resource"),
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                      {resourceBlocksForRender.map((block, index) =>
                         renderDayBlock(block, index, "resource"),
-                      )
-                    )}
-                  </div>
+                      )}
+                    </div>
+                  )}
 
                   <div className="mt-6 flex justify-end">
                     {renderProgressButton()}
@@ -827,36 +1103,82 @@ export default function LabContent({
           {showChallengeSection && (
             <section
               id="day-challenge"
-              className={`rounded-2xl border border-[rgba(4,164,90,0.45)] bg-[linear-gradient(135deg,rgba(6,31,33,0.95),rgba(4,20,22,0.94))] shadow-[0_14px_34px_rgba(2,12,11,0.5)] transition-all duration-300 ${challengeCollapsed ? "p-3 md:p-4" : "p-6 md:p-8"}`}
+              className={`relative overflow-hidden rounded-2xl border border-[rgba(4,164,90,0.42)] bg-[linear-gradient(160deg,rgba(5,23,40,0.96),rgba(4,20,31,0.95))] shadow-[0_14px_30px_rgba(2,12,11,0.44)] transition-all duration-300 before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-[linear-gradient(90deg,rgba(4,164,90,0.05),rgba(4,164,90,0.62),rgba(4,164,90,0.05))] ${challengeCollapsed ? "p-3 md:p-4" : "p-5 md:p-6"}`}
             >
               <div
-                className={`flex flex-wrap items-center justify-between gap-3 ${challengeCollapsed ? "mb-0 min-h-[38px]" : "mb-6"}`}
+                className={`grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 ${challengeCollapsed ? "mb-0" : "mb-5 border-b border-[var(--ast-mint)]/18 pb-3"}`}
               >
-                <h2 className={`font-black tracking-tight text-[#54efb3] ${challengeCollapsed ? "text-xl" : "text-3xl"}`}>
-                  Reto del Dia {currentDay.day_number}
-                </h2>
+                <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-3">
+                  {challengeStepMeta && (
+                    <span
+                      className={`mt-0.5 inline-flex h-7 min-w-7 items-center justify-center rounded-full text-[11px] font-bold ${
+                        challengeStepMeta.isActive
+                          ? "bg-[var(--ast-mint)] text-[var(--ast-black)]"
+                          : "bg-[var(--ast-cobalt)]/65 text-[var(--ast-sky)]"
+                      }`}
+                    >
+                      {challengeStepMeta.order}
+                    </span>
+                  )}
+                  <div className="min-w-0">
+                    {challengeStepMeta && (
+                      <p className="inline-flex rounded-full border border-[var(--ast-mint)]/35 bg-[rgba(0,73,44,0.24)] px-2 py-[2px] text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--ast-mint)]/92">
+                        {challengeStepMeta.status}
+                      </p>
+                    )}
+                    <h2 className={`mt-1 font-black tracking-tight text-[#54efb3] ${challengeCollapsed ? "text-xl" : "text-[1.9rem] md:text-[2.05rem]"}`}>
+                      Reto del Dia {currentDay.day_number}
+                    </h2>
+                    {challengeCollapsed && (
+                      <p className="mt-1 text-sm text-[#97c7b8]">
+                        {challengeBlocks.length} bloques · estado: {challengeStepDone ? "avanzado" : "pendiente"}
+                      </p>
+                    )}
+                  </div>
+                </div>
                 <button
                   type="button"
                   onClick={() => setChallengeCollapsed((prev) => !prev)}
-                  className="text-[11px] font-semibold uppercase tracking-widest text-[var(--ast-yellow)] hover:text-[#fff3a0]"
+                  className="inline-flex items-center gap-1.5 rounded-full border border-[var(--ast-mint)]/24 bg-[rgba(0,44,32,0.28)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#bde8d6] transition hover:border-[var(--ast-mint)]/46 hover:text-[#e8fff5]"
                 >
-                  {challengeCollapsed ? "Expandir sección" : "Colapsar sección"}
+                  {challengeCollapsed ? "Expandir" : "Colapsar"}
+                  <span aria-hidden="true" className="text-[11px] leading-none">
+                    {challengeCollapsed ? "▾" : "▴"}
+                  </span>
                 </button>
               </div>
 
-              {challengeCollapsed && (
-                <p className="text-xs text-[#8ab8aa]">
-                  {challengeBlocks.length} bloques · estado: {challengeStepDone ? "avanzado" : "pendiente"}
-                </p>
-              )}
-
               {!challengeCollapsed && (
                 <>
-                  {!showResourceSection && !videoDone && requiresWatch && (
-                    <p className="mb-4 text-xs text-yellow-500/75 animate-pulse">
-                      Seguridad activa: completa el video antes de marcar el progreso.
-                    </p>
-                  )}
+                  <div className="mb-4 rounded-lg border border-[var(--ast-mint)]/35 bg-[rgba(0,73,44,0.2)] p-4">
+                    <div className="mb-2 flex items-center justify-between gap-3">
+                      <p className="text-xs uppercase tracking-wider text-[var(--ast-mint)]/90">
+                        Ejecución guiada
+                      </p>
+                      <span className="rounded-full border border-[var(--ast-mint)]/45 bg-[rgba(4,164,90,0.14)] px-2 py-0.5 text-[11px] text-[var(--ast-bone)]">
+                        {Object.values(challengeGuideChecks).filter(Boolean).length}/
+                        {challengeGuideItems.length}
+                      </span>
+                    </div>
+                    <div className="grid gap-2 md:grid-cols-3">
+                      {challengeGuideItems.map((item) => (
+                        <label
+                          key={item.id}
+                          className="flex items-center gap-2 rounded border border-[var(--ast-mint)]/30 bg-[rgba(4,12,31,0.58)] px-3 py-2 text-sm text-[var(--ast-bone)]"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={challengeGuideChecks[item.id]}
+                            onChange={() =>
+                              toggleChallengeGuideStep(item.id)
+                            }
+                            className="h-4 w-4 accent-[var(--ast-mint)]"
+                          />
+                          <span>{item.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
 
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                     {challengeBlocks.map((block, index) =>
@@ -892,34 +1214,64 @@ export default function LabContent({
 
           <section
             id="day-forum"
-            className={`rounded-2xl border border-[#315ea3]/60 bg-[linear-gradient(135deg,rgba(10,21,52,0.95),rgba(5,13,32,0.95))] shadow-[0_14px_34px_rgba(3,10,24,0.52)] transition-all duration-300 ${forumCollapsed ? "p-3 md:p-4" : "p-6 md:p-8"}`}
+            className={`relative overflow-hidden rounded-2xl border border-[#2d5387]/58 bg-[linear-gradient(160deg,rgba(9,21,52,0.95),rgba(5,13,32,0.95))] shadow-[0_14px_30px_rgba(3,10,24,0.44)] transition-all duration-300 before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-[linear-gradient(90deg,rgba(76,150,255,0.05),rgba(76,150,255,0.62),rgba(76,150,255,0.05))] ${forumCollapsed ? "p-3 md:p-4" : "p-5 md:p-6"}`}
           >
-            <div className="flex items-center justify-between gap-3">
-              <h2 className={`font-black tracking-tight text-[#4beaa4] ${forumCollapsed ? "text-xl" : "text-3xl"}`}>
-                Foro de Discusión
-              </h2>
+            <div className={`grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 ${forumCollapsed ? "" : "mb-5 border-b border-[var(--ast-sky)]/18 pb-3"}`}>
+              <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-3">
+                {forumStepMeta && (
+                  <span
+                    className={`mt-0.5 inline-flex h-7 min-w-7 items-center justify-center rounded-full text-[11px] font-bold ${
+                      forumStepMeta.isActive
+                        ? "bg-[var(--ast-mint)] text-[var(--ast-black)]"
+                        : "bg-[var(--ast-cobalt)]/65 text-[var(--ast-sky)]"
+                    }`}
+                  >
+                    {forumStepMeta.order}
+                  </span>
+                )}
+                <div className="min-w-0">
+                  {forumStepMeta && (
+                    <p className="inline-flex rounded-full border border-[var(--ast-sky)]/30 bg-[rgba(7,27,63,0.5)] px-2 py-[2px] text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--ast-sky)]/90">
+                      {forumStepMeta.status}
+                    </p>
+                  )}
+                  <h2 className={`mt-1 font-black tracking-tight text-[#4beaa4] ${forumCollapsed ? "text-xl" : "text-[1.9rem] md:text-[2.05rem]"}`}>
+                    Foro de Discusión
+                  </h2>
+                  {forumCollapsed && (
+                    <p className="mt-1 text-sm text-[#9db4d6]">
+                      {forumStepDone
+                        ? "Participación lista o completada"
+                        : "Comparte tu aprendizaje en el foro"}
+                    </p>
+                  )}
+                </div>
+              </div>
               <button
                 type="button"
                 onClick={() => setForumCollapsed((prev) => !prev)}
-                className="text-[11px] font-semibold uppercase tracking-widest text-[var(--ast-yellow)] hover:text-[#fff3a0]"
+                className="inline-flex items-center gap-1.5 rounded-full border border-[var(--ast-sky)]/28 bg-[rgba(4,12,31,0.4)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#d8e7ff] transition hover:border-[var(--ast-sky)]/48 hover:text-white"
               >
-                {forumCollapsed ? "Expandir sección" : "Colapsar sección"}
+                {forumCollapsed ? "Expandir" : "Colapsar"}
+                <span aria-hidden="true" className="text-[11px] leading-none">
+                  {forumCollapsed ? "▾" : "▴"}
+                </span>
               </button>
             </div>
 
             {!forumCollapsed && (
               <>
                 {previewMode ? (
-                  <div className="mt-4 p-6 rounded-xl border border-dashed border-white/20 bg-[rgba(4,12,31,0.46)]">
-                    <h3 className="text-lg font-bold mb-2 text-[var(--ast-yellow)]">
+                  <div className="mt-4 rounded-xl border border-dashed border-white/20 bg-[rgba(4,12,31,0.46)] p-6">
+                    <h3 className="mb-2 text-lg font-bold text-[var(--ast-yellow)]">
                       Te gusto este lab?
                     </h3>
-                    <p className="text-[#d6e4fb] mb-4">
+                    <p className="mb-4 text-[#d6e4fb]">
                       Crea una cuenta para desbloquear todos los dias y participar en el foro.
                     </p>
                     <Link
                       href="/login"
-                      className="inline-block px-5 py-2 rounded-full bg-[var(--ast-emerald)] hover:bg-[var(--ast-forest)] font-semibold text-black"
+                      className="inline-block rounded-full bg-[var(--ast-emerald)] px-5 py-2 font-semibold text-black hover:bg-[var(--ast-forest)]"
                     >
                       Desbloquear contenido
                     </Link>
@@ -935,209 +1287,7 @@ export default function LabContent({
               </>
             )}
           </section>
-        </div>
-
-        <aside className="xl:col-span-1 self-start space-y-4">
-          <div className="rounded-2xl border border-[var(--ast-mint)]/40 bg-[linear-gradient(160deg,rgba(4,53,40,0.92),rgba(4,34,32,0.92))] p-4 shadow-[0_12px_26px_rgba(0,10,7,0.45)] space-y-3">
-            <div className="space-y-1">
-              <h3 className="text-sm uppercase tracking-widest text-[var(--ast-mint)]">
-                Ruta del día
-              </h3>
-              <p className="text-[11px] text-[#b7d7d0]/80">
-                Tip: haz clic en 1, 2 y 3 para navegar directo.
-              </p>
-            </div>
-            <ul className="space-y-2 text-sm">
-              <li className="flex items-center justify-between rounded border border-[var(--ast-sky)]/30 bg-[rgba(4,12,31,0.58)] px-3 py-2">
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={goToResource}
-                    className="h-6 min-w-6 rounded-full bg-[var(--ast-cobalt)] text-[11px] font-bold text-white hover:bg-[var(--ast-sky)]"
-                    aria-label="Ir a recurso principal"
-                  >
-                    1
-                  </button>
-                  <span className="text-[#d6e4fb]">{primaryRouteLabel}</span>
-                </div>
-                <span className={videoStepDone ? "text-green-400" : "text-yellow-400"}>
-                  {videoStepDone ? "Listo" : "Pendiente"}
-                </span>
-              </li>
-              <li className="flex items-center justify-between rounded border border-[var(--ast-sky)]/30 bg-[rgba(4,12,31,0.58)] px-3 py-2">
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={goToChallenge}
-                    className="h-6 min-w-6 rounded-full bg-[var(--ast-cobalt)] text-[11px] font-bold text-white hover:bg-[var(--ast-sky)]"
-                    aria-label="Ir a reto del día"
-                  >
-                    2
-                  </button>
-                  <span className="text-[#d6e4fb]">Resolver reto</span>
-                </div>
-                <span className={challengeStepDone ? "text-green-400" : "text-yellow-400"}>
-                  {challengeStepDone ? "Listo" : "Pendiente"}
-                </span>
-              </li>
-              {hasForumStep && (
-                <li className="flex items-center justify-between rounded border border-[var(--ast-sky)]/30 bg-[rgba(4,12,31,0.58)] px-3 py-2">
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={goToForum}
-                      className="h-6 min-w-6 rounded-full bg-[var(--ast-cobalt)] text-[11px] font-bold text-white hover:bg-[var(--ast-sky)]"
-                      aria-label="Ir al foro de discusión"
-                    >
-                      3
-                    </button>
-                    <span className="text-[#d6e4fb]">Publicar en foro</span>
-                  </div>
-                  <span className={forumStepDone ? "text-green-400" : "text-yellow-400"}>
-                    {forumStepDone ? "Listo" : "Pendiente"}
-                  </span>
-                </li>
-              )}
-            </ul>
-            <button
-              type="button"
-              onClick={primaryAction.onClick}
-              className="w-full rounded-md bg-[var(--ast-emerald)] px-3 py-2 text-sm font-bold text-black transition hover:bg-[var(--ast-mint)]"
-            >
-              {primaryAction.label}
-            </button>
-            <p className="text-xs text-[#d6e4fb]/80">{primaryAction.description}</p>
-            <button
-              type="button"
-              onClick={openQuickTutorial}
-              className="w-full rounded-md border border-[var(--ast-sky)]/40 bg-[rgba(4,12,31,0.46)] px-3 py-2 text-xs font-semibold uppercase tracking-widest text-[var(--ast-sky)] hover:border-[var(--ast-mint)] hover:text-[var(--ast-mint)]"
-            >
-              Ver tutorial rápido
-            </button>
-          </div>
-
-          <div className="rounded-2xl border border-[var(--ast-sky)]/30 bg-[linear-gradient(160deg,rgba(9,18,40,0.93),rgba(7,14,32,0.93))] p-4 shadow-[0_12px_28px_rgba(2,7,19,0.45)] space-y-3">
-            <h3 className="text-sm uppercase tracking-widest text-[var(--ast-sky)]">
-              Guía del día
-            </h3>
-            <div className="rounded border border-[var(--ast-sky)]/30 bg-[rgba(4,12,31,0.72)] p-3">
-              <p className="text-[11px] uppercase tracking-wider text-[var(--ast-sky)]/80">
-                Objetivo del día
-              </p>
-              <p className="mt-1 text-sm text-[var(--ast-bone)] leading-relaxed">{dayObjective}</p>
-            </div>
-            <div className="rounded border border-[var(--ast-sky)]/30 bg-[rgba(4,12,31,0.72)] p-3">
-              <p className="text-[11px] uppercase tracking-wider text-[var(--ast-sky)]/80">
-                Tiempo estimado
-              </p>
-              <p className="mt-1 text-sm font-semibold text-[var(--ast-bone)]">~{estimatedMinutes} min</p>
-            </div>
-            <div className="rounded border border-[var(--ast-sky)]/30 bg-[rgba(4,12,31,0.72)] p-3">
-              <p className="text-[11px] uppercase tracking-wider text-[var(--ast-sky)]/80">
-                Siguiente acción
-              </p>
-              <p className="mt-1 text-sm text-[var(--ast-bone)] leading-relaxed">{nextAction}</p>
-            </div>
-          </div>
-
-          {showProgressPanel && (
-            <div className="rounded-2xl border border-[var(--ast-sky)]/30 bg-[linear-gradient(160deg,rgba(9,18,40,0.93),rgba(7,14,32,0.93))] p-4 shadow-[0_12px_28px_rgba(2,7,19,0.45)] space-y-3">
-              <h3 className="text-sm uppercase tracking-widest text-[var(--ast-mint)]">
-                Progreso interactivo
-              </h3>
-
-              {showChecklistSummary && (
-                <div className="rounded border border-[var(--ast-sky)]/30 bg-[rgba(4,12,31,0.72)] p-3">
-                  <p className="text-xs text-[#9fb3d6]">Checklist completado</p>
-                  <p className="text-lg font-bold text-[var(--ast-bone)]">
-                    {completedChecklistItems}/{totalChecklistItems}
-                  </p>
-                </div>
-              )}
-
-              {showQuizSummary && (
-                <div className="rounded border border-[var(--ast-sky)]/30 bg-[rgba(4,12,31,0.72)] p-3 space-y-2">
-                  <p className="text-xs text-[#9fb3d6]">Evaluaciones del dia</p>
-                  <p className="text-sm text-[#e3ecfd]">Quizzes activos: {quizBlocks.length}</p>
-                </div>
-              )}
-            </div>
-          )}
-
-          {showResourcesQuickAccess && (
-            <div className="rounded-2xl border border-[var(--ast-sky)]/30 bg-[linear-gradient(160deg,rgba(9,18,40,0.93),rgba(7,14,32,0.93))] p-4 shadow-[0_12px_28px_rgba(2,7,19,0.45)] space-y-2">
-              <h3 className="text-sm uppercase tracking-widest text-[var(--ast-sky)]">
-                Accesos rápidos
-              </h3>
-              <ul className="space-y-1">
-                {resources.map((resource) => (
-                  <li key={resource.id}>
-                    <a
-                      href={`#resource-${resource.id}`}
-                      className="text-sm text-[var(--ast-sky)] hover:text-[var(--ast-mint)]"
-                    >
-                      {resource.caption?.trim() || "Documento"}
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </aside>
       </div>
-
-      {showQuickTutorial && (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/70 px-4 backdrop-blur-[2px]">
-          <div className="w-full max-w-2xl rounded-2xl border border-[#2d4b76] bg-[linear-gradient(145deg,rgba(10,22,52,0.98),rgba(6,15,37,0.98))] p-5 md:p-6 shadow-[0_20px_60px_rgba(3,8,24,0.65)]">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-xs uppercase tracking-widest text-[var(--ast-sky)]">
-                  Mini tutorial
-                </p>
-                <h3 className="mt-1 text-2xl font-black tracking-tight text-[#ddedff]">
-                  Cómo navegar este lab
-                </h3>
-              </div>
-              <button
-                type="button"
-                onClick={closeQuickTutorial}
-                className="rounded-md border border-[var(--ast-sky)]/40 px-2 py-1 text-xs font-semibold text-[#d6e4fb] hover:border-[var(--ast-sky)]/65 hover:text-white"
-              >
-                Cerrar
-              </button>
-            </div>
-
-            <ol className="mt-4 space-y-3 text-sm text-[#e3ecfd]">
-              <li className="rounded-lg border border-[var(--ast-sky)]/30 bg-[rgba(4,12,31,0.58)] p-3">
-                <span className="font-semibold text-[var(--ast-mint)]">1.</span>{" "}
-                Completa el <span className="font-semibold">recurso principal</span>.
-              </li>
-              <li className="rounded-lg border border-[var(--ast-sky)]/30 bg-[rgba(4,12,31,0.58)] p-3">
-                <span className="font-semibold text-[var(--ast-mint)]">2.</span>{" "}
-                Resuelve el reto y publica tu resultado en el foro.
-              </li>
-              <li className="rounded-lg border border-[var(--ast-sky)]/30 bg-[rgba(4,12,31,0.58)] p-3">
-                <span className="font-semibold text-[var(--ast-mint)]">3.</span>{" "}
-                Usa los números de <span className="font-semibold">Ruta del día</span> para ir directo a cada sección.
-              </li>
-              <li className="rounded-lg border border-[var(--ast-sky)]/30 bg-[rgba(4,12,31,0.58)] p-3">
-                <span className="font-semibold text-[var(--ast-mint)]">4.</span>{" "}
-                Marca como terminado al final del recurso o reto para desbloquear el siguiente módulo.
-              </li>
-            </ol>
-
-            <div className="mt-5 flex justify-end">
-              <button
-                type="button"
-                onClick={closeQuickTutorial}
-                className="rounded-md bg-[var(--ast-emerald)] px-4 py-2 text-sm font-bold text-black hover:bg-[var(--ast-mint)]"
-              >
-                Entendido
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </>
   );
 }
@@ -1320,34 +1470,77 @@ function estimateDayMinutes(
   return Math.min(90, Math.max(8, total));
 }
 
-function buildDayObjective(
-  resourceBlocks: DayBlock[],
-  challengeBlocks: DayBlock[],
-  dayNumber: number,
-): string {
-  const challengeText = getBlockPlainText(challengeBlocks);
-  const resourceText = getBlockPlainText(resourceBlocks);
-  const candidate = firstSentence(challengeText) || firstSentence(resourceText);
-  if (candidate) return limitText(candidate, 150);
-  return `Completa el recurso principal y aplica lo aprendido en el reto del Día ${dayNumber}.`;
+function buildChallengeGuideItems(challengeBlocks: DayBlock[]): ChallengeGuideStep[] {
+  const stepIds: ChallengeGuideStepId[] = ["scan", "filter", "publish"];
+  const fallbackLabels = [
+    "Revisé la consigna del reto",
+    "Ejecuté la actividad principal",
+    "Registré mi resultado final",
+  ];
+
+  const candidates = collectChallengeGuideCandidates(challengeBlocks);
+  const resolvedLabels = [...candidates];
+  while (resolvedLabels.length < stepIds.length) {
+    resolvedLabels.push(fallbackLabels[resolvedLabels.length]);
+  }
+
+  return stepIds.map((id, index) => ({
+    id,
+    label: `${index + 1}) ${limitText(resolvedLabels[index], 72)}`,
+  }));
 }
 
-function buildNextAction({
-  requiresWatch,
-  videoDone,
-  hasChallengeSection,
-}: {
-  requiresWatch: boolean;
-  videoDone: boolean;
-  hasChallengeSection: boolean;
-}): string {
-  if (requiresWatch && !videoDone) {
-    return "Termina el video principal para desbloquear el cierre del día.";
+function collectChallengeGuideCandidates(challengeBlocks: DayBlock[]): string[] {
+  const textCandidates: string[] = [];
+
+  for (const block of challengeBlocks) {
+    if (block.type === "checklist") {
+      for (const item of block.items ?? []) {
+        textCandidates.push(item.text);
+      }
+      continue;
+    }
+
+    if (block.type === "text") {
+      textCandidates.push(...splitTextLines(stripRichText(block.text ?? "")));
+      continue;
+    }
+
+    if (block.type === "quiz") {
+      for (const question of block.questions ?? []) {
+        textCandidates.push(question.prompt);
+      }
+      continue;
+    }
+
+    if (block.caption) {
+      textCandidates.push(block.caption);
+    }
   }
-  if (hasChallengeSection) {
-    return "Resuelve el reto por pasos y publica tu respuesta en el foro.";
+
+  const uniqueLabels: string[] = [];
+  const seen = new Set<string>();
+  for (const candidate of textCandidates) {
+    const normalized = normalizeChallengeGuideCandidate(candidate);
+    if (!normalized) continue;
+    const fingerprint = normalizeSummaryText(normalized);
+    if (!fingerprint || seen.has(fingerprint)) continue;
+    seen.add(fingerprint);
+    uniqueLabels.push(normalized);
+    if (uniqueLabels.length === 3) break;
   }
-  return "Resume tus dos aprendizajes clave en notas y marca el día como completado.";
+
+  return uniqueLabels;
+}
+
+function normalizeChallengeGuideCandidate(raw: string): string {
+  const base = firstSentence(stripRichText(raw))
+    .replace(/^\s*(paso|step)\s*\d+\s*[:.)-]?\s*/i, "")
+    .replace(/^\s*\d+\s*[:.)-]\s*/, "")
+    .trim();
+
+  if (base.length < 8) return "";
+  return base.charAt(0).toUpperCase() + base.slice(1);
 }
 
 function buildKeyTakeaways(resourceBlocks: DayBlock[]): string[] {

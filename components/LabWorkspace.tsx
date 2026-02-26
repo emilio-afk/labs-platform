@@ -14,7 +14,6 @@ export type WorkspaceDay = {
 
 type LabWorkspaceProps = {
   labId: string;
-  labPathId?: string;
   days: WorkspaceDay[];
   initialDayNumber: number;
   completedDayNumbers: number[];
@@ -23,90 +22,20 @@ type LabWorkspaceProps = {
 
 export default function LabWorkspace({
   labId,
-  labPathId,
   days,
   initialDayNumber,
   completedDayNumbers,
   previewMode = false,
 }: LabWorkspaceProps) {
-  const routeLabId = labPathId?.trim() || labId;
-  const defaultDay = days[0]?.day_number ?? 1;
-  const [currentDayNumber, setCurrentDayNumber] = useState(() => {
-    const exists = days.some((d) => d.day_number === initialDayNumber);
-    const candidate = exists ? initialDayNumber : defaultDay;
-    if (previewMode && candidate > 1) return defaultDay;
-    if (candidate <= 1) return candidate;
-    const completedSeed = new Set(completedDayNumbers);
-    return completedSeed.has(candidate - 1) ? candidate : defaultDay;
-  });
   const [completedDays, setCompletedDays] = useState<number[]>(
     Array.from(new Set(completedDayNumbers)),
   );
-  const [previewNotice, setPreviewNotice] = useState("");
   const [showBackToTop, setShowBackToTop] = useState(false);
-  const completedDaySet = useMemo(() => new Set(completedDays), [completedDays]);
 
   const currentDay = useMemo(
-    () => days.find((d) => d.day_number === currentDayNumber),
-    [currentDayNumber, days],
+    () => days.find((d) => d.day_number === initialDayNumber) ?? days[0],
+    [days, initialDayNumber],
   );
-
-  const isDayLocked = useMemo(
-    () => (dayNumber: number) => {
-      if (previewMode && dayNumber > 1) return true;
-      if (dayNumber <= 1) return false;
-      return !completedDaySet.has(dayNumber - 1);
-    },
-    [completedDaySet, previewMode],
-  );
-
-  const highestUnlockedDay = useMemo(() => {
-    const firstDay = days[0]?.day_number ?? 1;
-    if (previewMode) return firstDay;
-
-    let highest = firstDay;
-    for (const dayItem of days) {
-      if (isDayLocked(dayItem.day_number)) continue;
-      highest = Math.max(highest, dayItem.day_number);
-    }
-    return highest;
-  }, [days, isDayLocked, previewMode]);
-
-  const handleSelectDay = (dayNumber: number) => {
-    if (isDayLocked(dayNumber)) {
-      setPreviewNotice(
-        previewMode
-          ? "Solo puedes ver el Día 1 en modo vista previa."
-          : `Completa el Día ${dayNumber - 1} para desbloquear este módulo.`,
-      );
-      return;
-    }
-    if (dayNumber === currentDayNumber) return;
-    setCurrentDayNumber(dayNumber);
-    setPreviewNotice("");
-    if (typeof window !== "undefined") {
-      window.history.pushState({}, "", `/labs/${routeLabId}?day=${dayNumber}`);
-    }
-  };
-
-  useEffect(() => {
-    const onPopState = () => {
-      const url = new URL(window.location.href);
-      const nextDay = Number.parseInt(url.searchParams.get("day") ?? "", 10);
-      if (!Number.isFinite(nextDay)) return;
-      if (!days.some((d) => d.day_number === nextDay)) return;
-      if (isDayLocked(nextDay)) {
-        setCurrentDayNumber(highestUnlockedDay);
-        return;
-      }
-      setCurrentDayNumber(nextDay);
-    };
-
-    window.addEventListener("popstate", onPopState);
-    return () => {
-      window.removeEventListener("popstate", onPopState);
-    };
-  }, [days, highestUnlockedDay, isDayLocked]);
 
   useEffect(() => {
     const onScroll = () => {
@@ -130,45 +59,6 @@ export default function LabWorkspace({
 
   return (
     <div className="space-y-6">
-      <div className="rounded-2xl border border-[#2a4b7d]/65 bg-[linear-gradient(140deg,rgba(8,18,45,0.94),rgba(5,14,36,0.94))] p-4 shadow-[0_12px_30px_rgba(3,8,22,0.44)]">
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-2">
-          <h2 className="text-sm font-bold uppercase tracking-[0.22em] text-[#cfe0fa]">Módulos</h2>
-          {previewNotice && (
-            <p className="text-xs text-[var(--ast-yellow)]">{previewNotice}</p>
-          )}
-        </div>
-
-        <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-2">
-          {days.map((d) => {
-            const locked = isDayLocked(d.day_number);
-            return (
-              <button
-                key={d.id}
-                type="button"
-                onClick={() => handleSelectDay(d.day_number)}
-                className={`rounded-md border px-3 py-2 text-left min-h-[74px] transition ${currentDayNumber === d.day_number ? "border-[var(--ast-mint)] bg-[color:rgba(4,73,44,0.45)]" : "border-[var(--ast-sky)]/28 bg-[rgba(4,12,31,0.82)] hover:border-[var(--ast-sky)]/55 hover:bg-[rgba(7,26,58,0.78)]"} ${locked ? "opacity-65" : ""}`}
-              >
-                <div className="grid grid-cols-[24px_1fr_auto] items-start gap-2">
-                  <span
-                    className={`flex h-6 min-w-6 items-center justify-center rounded-full px-1 text-xs font-bold ${currentDayNumber === d.day_number ? "bg-[var(--ast-mint)] text-black" : "bg-[rgba(10,86,198,0.28)] text-[var(--ast-sky)]"}`}
-                  >
-                    {d.day_number}
-                  </span>
-                  <span className="text-xs font-medium leading-snug line-clamp-2">
-                    {d.title}
-                  </span>
-                  <span
-                    className={`text-[10px] uppercase tracking-wider ${locked ? "text-[var(--ast-yellow)]" : "invisible"}`}
-                  >
-                    Bloqueado
-                  </span>
-                </div>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
       {currentDay ? (
         <>
           <LabContent

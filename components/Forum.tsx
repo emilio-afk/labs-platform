@@ -33,6 +33,11 @@ export default function Forum({
   const hasCustomPrompt = Boolean(discussionPrompt?.trim());
   const resolvedPrompt =
     discussionPrompt?.trim() || "Comparte algo que hayas aprendido el día de hoy.";
+  const quickTemplates = [
+    "Lo que detecté hoy: ...",
+    "Qué ajustaré mañana: ...",
+    "Mi nueva versión de solicitud: ...",
+  ];
 
   useEffect(() => {
     let active = true;
@@ -114,6 +119,10 @@ export default function Forum({
     }
   };
 
+  const insertTemplate = (template: string) => {
+    setNewComment((prev) => (prev.trim() ? `${prev}\n\n${template}` : template));
+  };
+
   return (
     <div className="mt-4">
       {!authResolved ? (
@@ -139,10 +148,22 @@ export default function Forum({
           </div>
           <textarea
             className="w-full rounded-lg border border-[var(--ast-sky)]/30 bg-[rgba(4,12,31,0.72)] p-4 text-[var(--ast-bone)] outline-none focus:border-[var(--ast-mint)]"
-            placeholder="Comparte tu aprendizaje del día..."
+            placeholder="Comparte tu aprendizaje con estructura: qué viste, qué corregirás y ejemplo aplicado."
             value={newComment}
             onChange={(e) => setNewComment(e.target.value)}
           />
+          <div className="mt-2 flex flex-wrap gap-2">
+            {quickTemplates.map((template) => (
+              <button
+                key={template}
+                type="button"
+                onClick={() => insertTemplate(template)}
+                className="rounded-full border border-[var(--ast-sky)]/45 bg-[rgba(10,86,198,0.18)] px-3 py-1 text-xs text-[var(--ast-sky)] transition hover:border-[var(--ast-mint)] hover:text-[var(--ast-mint)]"
+              >
+                + {template}
+              </button>
+            ))}
+          </div>
           <button
             type="submit"
             className="mt-2 rounded-lg bg-[var(--ast-mint)] px-6 py-2 font-bold text-[var(--ast-black)] transition hover:bg-[var(--ast-forest)]"
