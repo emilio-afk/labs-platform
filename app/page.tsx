@@ -38,6 +38,7 @@ type SiteSettings = {
 const DEFAULT_HERO_TITLE = "Aprende, practica y ejecuta en días.";
 const DEFAULT_HERO_SUBTITLE =
   "Explora rutas prácticas y desbloquea cada lab con tu acceso.";
+const QUERY_TIMEOUT_MS = 3500;
 
 export default async function Home({
   searchParams,
@@ -49,42 +50,53 @@ export default async function Home({
   const adminSupabase = createAdminClient();
   const showcaseClient = adminSupabase ?? supabase;
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  const { data: profile } = user
-    ? await supabase
-        .from("profiles")
-        .select("role")
-        .eq("id", user.id)
-        .maybeSingle()
-    : { data: null };
+  const authResult = await safeQuery(supabase.auth.getUser(), "auth.getUser");
+  const user = authResult?.data?.user ?? null;
+
+  const profileResult = user
+    ? await safeQuery(
+        supabase.from("profiles").select("role").eq("id", user.id).maybeSingle(),
+        "profiles.role",
+      )
+    : null;
+  const profile = profileResult?.data ?? null;
 
   const isAdmin = profile?.role === "admin";
 
-  const { data: showcaseLabs } = (await showcaseClient
-    .from("labs")
-    .select("*")
-    .order("created_at", { ascending: false })) as { data: LabCard[] | null };
+  const [showcaseLabsResult, activePriceRowsResult, settingsResult] = await Promise.all([
+    safeQuery(
+      showcaseClient
+        .from("labs")
+        .select("*")
+        .order("created_at", { ascending: false }) as Promise<{ data: LabCard[] | null }>,
+      "labs.list",
+    ),
+    safeQuery(
+      showcaseClient
+        .from("lab_prices")
+        .select("lab_id, currency, amount_cents, is_active")
+        .eq("is_active", true) as Promise<{ data: LabPrice[] | null }>,
+      "lab_prices.active",
+    ),
+    safeQuery(
+      supabase
+        .from("app_settings")
+        .select("hero_title, hero_subtitle")
+        .eq("id", 1)
+        .maybeSingle() as Promise<{ data: SiteSettings | null }>,
+      "app_settings.hero",
+    ),
+  ]);
 
-  const { data: activePriceRows } = (await showcaseClient
-    .from("lab_prices")
-    .select("lab_id, currency, amount_cents, is_active")
-    .eq("is_active", true)) as { data: LabPrice[] | null };
-
-  const { data: settings } = (await supabase
-    .from("app_settings")
-    .select("hero_title, hero_subtitle")
-    .eq("id", 1)
-    .maybeSingle()) as { data: SiteSettings | null };
-
-  const catalogLabs = showcaseLabs ?? [];
+  const catalogLabs = showcaseLabsResult?.data ?? [];
+  const activePriceRows = activePriceRowsResult?.data ?? [];
+  const settings = settingsResult?.data ?? null;
   const pricesByLab = new Map<
     string,
     Array<{ currency: "USD" | "MXN"; amountCents: number }>
   >();
 
-  for (const row of activePriceRows ?? []) {
+  for (const row of activePriceRows) {
     const list = pricesByLab.get(row.lab_id) ?? [];
     list.push({
       currency: row.currency,
@@ -95,11 +107,17 @@ export default async function Home({
 
   let accessibleLabIds = new Set<string>();
   if (user && !isAdmin) {
-    const { data: entitlements } = await supabase
-      .from("lab_entitlements")
-      .select("lab_id")
-      .eq("user_id", user.id)
-      .eq("status", "active");
+    const entitlementsResult = await safeQuery(
+      supabase
+        .from("lab_entitlements")
+        .select("lab_id")
+        .eq("user_id", user.id)
+        .eq("status", "active"),
+      "lab_entitlements.active",
+    );
+    const entitlements = (entitlementsResult?.data ?? []) as Array<{
+      lab_id: string | null;
+    }>;
 
     accessibleLabIds = new Set(
       entitlements
@@ -515,4 +533,33 @@ function formatMoney(amountCents: number, currency: "USD" | "MXN"): string {
     style: "currency",
     currency,
   }).format(amountCents / 100);
+}
+
+async function safeQuery<T>(promise: Promise<T>, label: string): Promise<T | null> {
+  try {
+    return await withTimeout(promise, QUERY_TIMEOUT_MS);
+  } catch (error) {
+    if (process.env.NODE_ENV !== "production") {
+      console.warn(`[home] Query failed (${label})`, error);
+    }
+    return null;
+  }
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`Operation timed out after ${ms}ms`));
+    }, ms);
+
+    promise
+      .then((result) => {
+        clearTimeout(timer);
+        resolve(result);
+      })
+      .catch((error: unknown) => {
+        clearTimeout(timer);
+        reject(error);
+      });
+  });
 }

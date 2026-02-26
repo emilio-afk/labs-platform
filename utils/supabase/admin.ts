@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { fetchWithTimeout } from "@/utils/supabase/fetchWithTimeout";
 
 export function createAdminClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -9,6 +10,9 @@ export function createAdminClient() {
     auth: {
       autoRefreshToken: false,
       persistSession: false,
+    },
+    global: {
+      fetch: fetchWithTimeout,
     },
   });
 }
