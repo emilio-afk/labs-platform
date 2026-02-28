@@ -68,14 +68,14 @@ export default async function Home({
       showcaseClient
         .from("labs")
         .select("*")
-        .order("created_at", { ascending: false }) as Promise<{ data: LabCard[] | null }>,
+        .order("created_at", { ascending: false }),
       "labs.list",
     ),
     safeQuery(
       showcaseClient
         .from("lab_prices")
         .select("lab_id, currency, amount_cents, is_active")
-        .eq("is_active", true) as Promise<{ data: LabPrice[] | null }>,
+        .eq("is_active", true),
       "lab_prices.active",
     ),
     safeQuery(
@@ -83,7 +83,7 @@ export default async function Home({
         .from("app_settings")
         .select("hero_title, hero_subtitle")
         .eq("id", 1)
-        .maybeSingle() as Promise<{ data: SiteSettings | null }>,
+        .maybeSingle(),
       "app_settings.hero",
     ),
   ]);
@@ -536,9 +536,9 @@ function formatMoney(amountCents: number, currency: "USD" | "MXN"): string {
   }).format(amountCents / 100);
 }
 
-async function safeQuery<T>(promise: Promise<T>, label: string): Promise<T | null> {
+async function safeQuery<T>(operation: PromiseLike<T>, label: string): Promise<T | null> {
   try {
-    return await withTimeout(promise, QUERY_TIMEOUT_MS);
+    return await withTimeout(Promise.resolve(operation), QUERY_TIMEOUT_MS);
   } catch (error) {
     if (process.env.NODE_ENV !== "production") {
       console.warn(`[home] Query failed (${label})`, error);
@@ -547,13 +547,13 @@ async function safeQuery<T>(promise: Promise<T>, label: string): Promise<T | nul
   }
 }
 
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+function withTimeout<T>(promise: PromiseLike<T>, ms: number): Promise<T> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       reject(new Error(`Operation timed out after ${ms}ms`));
     }, ms);
 
-    promise
+    Promise.resolve(promise)
       .then((result) => {
         clearTimeout(timer);
         resolve(result);
