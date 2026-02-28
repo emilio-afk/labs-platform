@@ -11,10 +11,10 @@ type Dot = {
   hue: number;
 };
 
-const MIN_DOTS = 28;
-const MAX_DOTS = 72;
-const LINK_DISTANCE = 160;
-const SPEED_LIMIT = 0.22;
+const MIN_DOTS = 22;
+const MAX_DOTS = 56;
+const LINK_DISTANCE = 148;
+const SPEED_LIMIT = 0.09;
 
 export default function ConnectedDotsBackground() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -49,14 +49,14 @@ export default function ConnectedDotsBackground() {
       canvas.style.height = `${height}px`;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-      const densityTarget = Math.floor((width * height) / 35000);
+      const densityTarget = Math.floor((width * height) / 47000);
       const dotCount = Math.max(MIN_DOTS, Math.min(MAX_DOTS, densityTarget));
 
       dots = Array.from({ length: dotCount }, () => ({
         x: randomRange(0, width),
         y: randomRange(0, height),
-        vx: randomRange(-0.09, 0.09),
-        vy: randomRange(-0.09, 0.09),
+        vx: randomRange(-0.035, 0.035),
+        vy: randomRange(-0.035, 0.035),
         radius: randomRange(1.3, 2.6),
         hue: randomRange(170, 225),
       }));
@@ -69,8 +69,8 @@ export default function ConnectedDotsBackground() {
         const dot = dots[i];
 
         if (!reducedMotion) {
-          dot.vx = clampSpeed((dot.vx + randomRange(-0.011, 0.011)) * 0.995);
-          dot.vy = clampSpeed((dot.vy + randomRange(-0.011, 0.011)) * 0.995);
+          dot.vx = clampSpeed((dot.vx + randomRange(-0.0035, 0.0035)) * 0.998);
+          dot.vy = clampSpeed((dot.vy + randomRange(-0.0035, 0.0035)) * 0.998);
           dot.x += dot.vx;
           dot.y += dot.vy;
         }
@@ -97,11 +97,11 @@ export default function ConnectedDotsBackground() {
 
           const distance = Math.sqrt(distSquared);
           const intensity = 1 - distance / LINK_DISTANCE;
-          const alpha = intensity * intensity * 0.18;
+          const alpha = intensity * intensity * 0.1;
           const hue = (a.hue + b.hue) / 2;
 
           ctx.strokeStyle = `hsla(${hue}, 88%, 66%, ${alpha})`;
-          ctx.lineWidth = 0.7 + intensity * 0.6;
+          ctx.lineWidth = 0.5 + intensity * 0.45;
           ctx.beginPath();
           ctx.moveTo(a.x, a.y);
           ctx.lineTo(b.x, b.y);
@@ -111,14 +111,14 @@ export default function ConnectedDotsBackground() {
 
       for (const dot of dots) {
         const glow = ctx.createRadialGradient(dot.x, dot.y, 0, dot.x, dot.y, dot.radius * 4);
-        glow.addColorStop(0, `hsla(${dot.hue}, 96%, 70%, 0.55)`);
+        glow.addColorStop(0, `hsla(${dot.hue}, 96%, 70%, 0.36)`);
         glow.addColorStop(1, `hsla(${dot.hue}, 96%, 70%, 0)`);
         ctx.fillStyle = glow;
         ctx.beginPath();
         ctx.arc(dot.x, dot.y, dot.radius * 4, 0, Math.PI * 2);
         ctx.fill();
 
-        ctx.fillStyle = `hsla(${dot.hue}, 96%, 78%, 0.78)`;
+        ctx.fillStyle = `hsla(${dot.hue}, 96%, 78%, 0.62)`;
         ctx.beginPath();
         ctx.arc(dot.x, dot.y, dot.radius, 0, Math.PI * 2);
         ctx.fill();
@@ -148,7 +148,7 @@ export default function ConnectedDotsBackground() {
     >
       <canvas
         ref={canvasRef}
-        className="h-full w-full opacity-38 [mask-image:radial-gradient(ellipse_at_center,transparent_22%,rgba(0,0,0,0.45)_56%,black_100%)]"
+        className="h-full w-full opacity-30 [mask-image:radial-gradient(ellipse_at_center,transparent_26%,rgba(0,0,0,0.5)_58%,black_100%)]"
       />
     </div>
   );

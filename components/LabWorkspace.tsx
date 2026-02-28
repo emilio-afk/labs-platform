@@ -18,6 +18,8 @@ type LabWorkspaceProps = {
   initialDayNumber: number;
   completedDayNumbers: number[];
   previewMode?: boolean;
+  labTitle?: string;
+  labPosterUrl?: string | null;
 };
 
 export default function LabWorkspace({
@@ -26,6 +28,8 @@ export default function LabWorkspace({
   initialDayNumber,
   completedDayNumbers,
   previewMode = false,
+  labTitle,
+  labPosterUrl,
 }: LabWorkspaceProps) {
   const [completedDays, setCompletedDays] = useState<number[]>(
     Array.from(new Set(completedDayNumbers)),
@@ -50,10 +54,15 @@ export default function LabWorkspace({
     };
   }, []);
 
-  const handleDayCompleted = (dayNumber: number) => {
+  const handleDayProgressChange = (dayNumber: number, completed: boolean) => {
     setCompletedDays((prev) => {
-      if (prev.includes(dayNumber)) return prev;
-      return [...prev, dayNumber];
+      if (completed) {
+        if (prev.includes(dayNumber)) return prev;
+        return [...prev, dayNumber];
+      }
+
+      if (!prev.includes(dayNumber)) return prev;
+      return prev.filter((value) => value !== dayNumber);
     });
   };
 
@@ -66,8 +75,10 @@ export default function LabWorkspace({
             currentDay={currentDay}
             labId={labId}
             initialCompleted={completedDays.includes(currentDay.day_number)}
-            onDayCompleted={handleDayCompleted}
+            onDayCompleted={handleDayProgressChange}
             previewMode={previewMode}
+            labTitle={labTitle}
+            labPosterUrl={labPosterUrl}
           />
         </>
       ) : (

@@ -55,6 +55,9 @@ export async function proxy(request: NextRequest) {
     const message =
       error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
     const isMissingRefreshToken = message.includes("refresh token not found");
+    if (isMissingRefreshToken) {
+      clearSupabaseAuthCookies(request, supabaseResponse);
+    }
     if (process.env.NODE_ENV !== "production" && !isMissingRefreshToken) {
       console.warn("[proxy] Supabase auth refresh timeout/failure:", error);
     }
@@ -63,9 +66,21 @@ export async function proxy(request: NextRequest) {
   return supabaseResponse;
 }
 
+function clearSupabaseAuthCookies(request: NextRequest, response: NextResponse) {
+  const authCookieNames = request.cookies
+    .getAll()
+    .map(({ name }) => name)
+    .filter((name) => name.startsWith("sb-") && name.includes("-auth-token"));
+
+  authCookieNames.forEach((name) => {
+    request.cookies.delete(name);
+    response.cookies.set(name, "", { maxAge: 0, path: "/" });
+  });
+}
+
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    "/((?!_next|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|map|txt|xml|woff|woff2|ttf)$).*)",
   ],
 };
 

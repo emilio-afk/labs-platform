@@ -11,7 +11,6 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import VideoPlayer from "./VideoPlayer";
-import ProgressButton from "./ProgressButton";
 import Forum from "./Forum";
 
 type DayContent = {
@@ -43,13 +42,6 @@ type DayStateApiResponse = {
   error?: string;
 };
 
-type ChallengeGuideStepId = "scan" | "filter" | "publish";
-
-type ChallengeGuideStep = {
-  id: ChallengeGuideStepId;
-  label: string;
-};
-
 type WorkflowStepId = "resource" | "challenge" | "forum";
 
 type WorkflowStep = {
@@ -60,11 +52,57 @@ type WorkflowStep = {
   onClick: () => void;
 };
 
+type WorkflowStatus = "Listo" | "Actual" | "Pendiente";
+
+type WorkflowTone = {
+  stepBadgeClass: string;
+  statusBadgeClass: string;
+  titleClass: string;
+  metaClass: string;
+  toggleButtonClass: string;
+};
+
 const EMPTY_DAY_STATE: DayLocalState = {
   notes: "",
   checklistSelections: {},
   quizAnswers: {},
 };
+
+function getWorkflowTone(status: WorkflowStatus): WorkflowTone {
+  if (status === "Actual") {
+    return {
+      stepBadgeClass: "bg-[var(--ast-mint)] text-[var(--ast-black)]",
+      statusBadgeClass:
+        "border-[var(--ast-mint)]/55 bg-[rgba(4,164,90,0.16)] text-[var(--ast-mint)]",
+      titleClass: "text-[#54efb3]",
+      metaClass: "text-[#9fe2c4]",
+      toggleButtonClass:
+        "border-[var(--ast-mint)]/30 bg-[rgba(0,44,32,0.28)] text-[#bde8d6] hover:border-[var(--ast-mint)]/52 hover:text-[#e8fff5]",
+    };
+  }
+
+  if (status === "Listo") {
+    return {
+      stepBadgeClass: "bg-[var(--ast-cobalt)]/72 text-[#e2efff]",
+      statusBadgeClass:
+        "border-[var(--ast-sky)]/42 bg-[rgba(7,68,168,0.24)] text-[var(--ast-sky)]",
+      titleClass: "text-[#d8e7ff]",
+      metaClass: "text-[#a8c0e2]",
+      toggleButtonClass:
+        "border-[var(--ast-sky)]/30 bg-[rgba(4,12,31,0.42)] text-[#d8e7ff] hover:border-[var(--ast-sky)]/48 hover:text-white",
+    };
+  }
+
+  return {
+    stepBadgeClass: "bg-[#d9e8ff] text-[#0f2348]",
+    statusBadgeClass:
+      "border-[var(--ast-sky)]/24 bg-[rgba(4,12,31,0.46)] text-[#9fb7da]",
+    titleClass: "text-[#d8e7ff]",
+    metaClass: "text-[#93abd0]",
+    toggleButtonClass:
+      "border-[var(--ast-sky)]/22 bg-[rgba(4,12,31,0.34)] text-[#bcd2ef] hover:border-[var(--ast-sky)]/42 hover:text-[#e2efff]",
+  };
+}
 
 export default function LabContent({
   currentDay,
@@ -72,12 +110,16 @@ export default function LabContent({
   initialCompleted,
   onDayCompleted,
   previewMode = false,
+  labTitle,
+  labPosterUrl,
 }: {
   currentDay: DayContent;
   labId: string;
   initialCompleted: boolean;
-  onDayCompleted?: (dayNumber: number) => void;
+  onDayCompleted?: (dayNumber: number, completed: boolean) => void;
   previewMode?: boolean;
+  labTitle?: string;
+  labPosterUrl?: string | null;
 }) {
   const blocks = useMemo(
     () => parseDayBlocks(currentDay.content, currentDay.video_url),
@@ -94,27 +136,31 @@ export default function LabContent({
   const primaryResourceBlockId = primaryResourceBlock?.block.id ?? null;
   const primaryResourceVideoId = primaryResourceBlock?.videoId ?? null;
   const primaryRouteLabel = getPrimaryRouteLabel(primaryResourceBlock?.block);
-
-  const requiresWatch = Boolean(
-    primaryResourceBlock?.block.type === "video" &&
-      primaryResourceVideoId &&
-      !initialCompleted,
-  );
-  const [videoDone, setVideoDone] = useState(
-    () => initialCompleted || !requiresWatch,
-  );
+  const [resourceStepCompleted, setResourceStepCompleted] = useState(initialCompleted);
   const [resourceCollapsed, setResourceCollapsed] = useState(true);
   const [challengeCollapsed, setChallengeCollapsed] = useState(true);
   const [forumCollapsed, setForumCollapsed] = useState(true);
   const [hasUserForumComment, setHasUserForumComment] = useState(false);
-  const [showResourceNarrative, setShowResourceNarrative] = useState(false);
-  const challengeGuideStorageKey = useMemo(
-    () => `astrolab_challenge_guide_${labId}_${currentDay.day_number}`,
+  const [challengeResponseSaved, setChallengeResponseSaved] = useState(false);
+  const [challengeSavedSnapshot, setChallengeSavedSnapshot] = useState("");
+  const [challengeSaveFeedback, setChallengeSaveFeedback] = useState("");
+  const [dayCompletionSynced, setDayCompletionSynced] = useState(initialCompleted);
+  const [progressSyncError, setProgressSyncError] = useState("");
+  const [challengeManualLoaded, setChallengeManualLoaded] = useState(false);
+  const [forumMarkerLoaded, setForumMarkerLoaded] = useState(false);
+  const progressSyncInFlightRef = useRef(false);
+  const forumCommentMarkerKey = useMemo(
+    () => `astrolab_forum_commented_${labId}_${currentDay.day_number}`,
     [currentDay.day_number, labId],
   );
-  const [challengeGuideChecks, setChallengeGuideChecks] = useState<
-    Record<ChallengeGuideStepId, boolean>
-  >({ scan: false, filter: false, publish: false });
+  const challengeManualStateKey = useMemo(
+    () => `astrolab_challenge_manual_${labId}_${currentDay.day_number}`,
+    [currentDay.day_number, labId],
+  );
+  const resourceManualStateKey = useMemo(
+    () => `astrolab_resource_manual_${labId}_${currentDay.day_number}`,
+    [currentDay.day_number, labId],
+  );
 
   const localStateKey = useMemo(
     () => `astrolab_day_state_${labId}_${currentDay.day_number}`,
@@ -140,6 +186,66 @@ export default function LabContent({
   const [routeMounted, setRouteMounted] = useState(false);
   const [heroRouteSlot, setHeroRouteSlot] = useState<HTMLElement | null>(null);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    setResourceStepCompleted(initialCompleted);
+    setDayCompletionSynced(initialCompleted);
+    setProgressSyncError("");
+    setChallengeManualLoaded(false);
+    setForumMarkerLoaded(false);
+  }, [initialCompleted, currentDay.day_number, labId]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const rawResource = window.localStorage.getItem(resourceManualStateKey);
+    if (rawResource === "1") {
+      setResourceStepCompleted(true);
+    } else if (rawResource === "0") {
+      setResourceStepCompleted(false);
+    } else {
+      setResourceStepCompleted(initialCompleted);
+    }
+  }, [initialCompleted, resourceManualStateKey]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(resourceManualStateKey, resourceStepCompleted ? "1" : "0");
+  }, [resourceManualStateKey, resourceStepCompleted]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const raw = window.localStorage.getItem(challengeManualStateKey);
+    setChallengeSaveFeedback("");
+    if (!raw) {
+      setChallengeResponseSaved(false);
+      setChallengeSavedSnapshot("");
+      setChallengeManualLoaded(true);
+      return;
+    }
+    try {
+      const parsed = JSON.parse(raw) as {
+        saved?: boolean;
+        snapshot?: string;
+      };
+      setChallengeResponseSaved(Boolean(parsed.saved));
+      setChallengeSavedSnapshot(typeof parsed.snapshot === "string" ? parsed.snapshot : "");
+    } catch {
+      setChallengeResponseSaved(false);
+      setChallengeSavedSnapshot("");
+    }
+    setChallengeManualLoaded(true);
+  }, [challengeManualStateKey]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(
+      challengeManualStateKey,
+      JSON.stringify({
+        saved: challengeResponseSaved,
+        snapshot: challengeSavedSnapshot,
+      }),
+    );
+  }, [challengeManualStateKey, challengeResponseSaved, challengeSavedSnapshot]);
 
   useEffect(() => {
     let cancelled = false;
@@ -243,10 +349,6 @@ export default function LabContent({
   ]);
 
   useEffect(() => {
-    setShowResourceNarrative(false);
-  }, [currentDay.id]);
-
-  useEffect(() => {
     if (typeof document === "undefined") return;
     setRouteMounted(true);
     setHeroRouteSlot(document.getElementById("day-route-hero-slot"));
@@ -254,43 +356,15 @@ export default function LabContent({
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const raw = window.localStorage.getItem(challengeGuideStorageKey);
-    if (!raw) {
-      setChallengeGuideChecks({ scan: false, filter: false, publish: false });
-      return;
-    }
-
-    try {
-      const parsed = JSON.parse(raw) as Partial<
-        Record<ChallengeGuideStepId, unknown>
-      >;
-      setChallengeGuideChecks({
-        scan: Boolean(parsed.scan),
-        filter: Boolean(parsed.filter),
-        publish: Boolean(parsed.publish),
-      });
-    } catch {
-      setChallengeGuideChecks({ scan: false, filter: false, publish: false });
-    }
-  }, [challengeGuideStorageKey]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    window.localStorage.setItem(
-      challengeGuideStorageKey,
-      JSON.stringify(challengeGuideChecks),
-    );
-  }, [challengeGuideChecks, challengeGuideStorageKey]);
+    setHasUserForumComment(window.localStorage.getItem(forumCommentMarkerKey) === "1");
+    setForumMarkerLoaded(true);
+  }, [forumCommentMarkerKey]);
 
   const resourceBlocks = blocks.filter(
     (block) => block.group !== "challenge",
   );
   const challengeBlocks = blocks.filter(
     (block) => block.group === "challenge",
-  );
-  const challengeGuideItems = useMemo(
-    () => buildChallengeGuideItems(challengeBlocks),
-    [challengeBlocks],
   );
   const hasPrimaryVideo = Boolean(
     primaryResourceBlock?.block.type === "video" && primaryResourceVideoId,
@@ -299,63 +373,7 @@ export default function LabContent({
     hasPrimaryVideo || resourceBlocks.length > 0 || challengeBlocks.length === 0;
   const showChallengeSection = challengeBlocks.length > 0;
   const estimatedMinutes = estimateDayMinutes(blocks, hasPrimaryVideo);
-  const keyTakeaways = buildKeyTakeaways(resourceBlocks);
-  const resourceTextLines = useMemo(
-    () => getResourceTextLines(resourceBlocks),
-    [resourceBlocks],
-  );
-  const resourceTextLength = useMemo(
-    () => resourceTextLines.join(" ").length,
-    [resourceTextLines],
-  );
-  const filteredKeyTakeaways = useMemo(
-    () =>
-      keyTakeaways.filter(
-        (takeaway) =>
-          !resourceTextLines.some((line) => isSimilarTextForSummary(takeaway, line)),
-      ),
-    [keyTakeaways, resourceTextLines],
-  );
-  const hasEnoughContentForSummary =
-    resourceTextLines.length >= 3 || resourceTextLength >= 320;
-  const showTakeawayPanel =
-    hasEnoughContentForSummary && filteredKeyTakeaways.length > 0;
-  const resourceNarrative = useMemo(
-    () => resourceTextLines.join(" "),
-    [resourceTextLines],
-  );
-  const hasLongNarrative = resourceNarrative.length > 260;
-  const resourceNarrativePreview = useMemo(
-    () => limitText(resourceNarrative, 260),
-    [resourceNarrative],
-  );
-  const normalizedTakeaways = useMemo(
-    () => filteredKeyTakeaways.map((item) => normalizeSummaryText(item)).filter(Boolean),
-    [filteredKeyTakeaways],
-  );
-  const resourceBlocksForRender = useMemo(() => {
-    if (!showTakeawayPanel || normalizedTakeaways.length === 0) return resourceBlocks;
-
-    return resourceBlocks.filter((block) => {
-      if (block.type !== "text") return true;
-
-      const textLines = splitTextLines(stripRichText(block.text ?? ""))
-        .map((line) => normalizeSummaryText(line))
-        .filter(Boolean);
-
-      if (textLines.length === 0) return false;
-      if (textLines.length > 2) return true;
-
-      const isRepeatedSummary = textLines.every((line) =>
-        normalizedTakeaways.some(
-          (takeaway) =>
-            takeaway === line || takeaway.includes(line) || line.includes(takeaway),
-        ),
-      );
-
-      return !isRepeatedSummary;
-    });
-  }, [normalizedTakeaways, resourceBlocks, showTakeawayPanel]);
+  const resourceBlocksForRender = resourceBlocks;
   const primaryResourceVideoBlock = useMemo(
     () =>
       resourceBlocksForRender.find(
@@ -363,12 +381,15 @@ export default function LabContent({
       ) ?? null,
     [primaryResourceBlockId, resourceBlocksForRender],
   );
-  const downloadableResourceBlocks = useMemo(
-    () => resourceBlocksForRender.filter((block) => block.type === "file"),
-    [resourceBlocksForRender],
+  const resourceSidebarBlocks = useMemo(
+    () =>
+      resourceBlocksForRender.filter((block) => {
+        if (block.id === primaryResourceBlockId) return false;
+        return canRenderResourceSidebarItem(block);
+      }),
+    [primaryResourceBlockId, resourceBlocksForRender],
   );
-  const useResourceSidebarLayout =
-    Boolean(primaryResourceVideoBlock) && downloadableResourceBlocks.length > 0;
+  const useResourceSidebarLayout = Boolean(primaryResourceVideoBlock);
   const remainingResourceBlocks = useMemo(() => {
     if (!useResourceSidebarLayout || !primaryResourceVideoBlock) {
       return resourceBlocksForRender;
@@ -376,12 +397,12 @@ export default function LabContent({
 
     const excludedIds = new Set<string>([
       primaryResourceVideoBlock.id,
-      ...downloadableResourceBlocks.map((block) => block.id),
+      ...resourceSidebarBlocks.map((block) => block.id),
     ]);
     return resourceBlocksForRender.filter((block) => !excludedIds.has(block.id));
   }, [
-    downloadableResourceBlocks,
     primaryResourceVideoBlock,
+    resourceSidebarBlocks,
     resourceBlocksForRender,
     useResourceSidebarLayout,
   ]);
@@ -399,12 +420,6 @@ export default function LabContent({
   const quizBlocks = blocks.filter(
     (block) => block.type === "quiz" && (block.questions?.length ?? 0) > 0,
   );
-
-  const completedChecklistItems = checklistBlocks.reduce((sum, block) => {
-    const selected = new Set(checklistSelections[block.id] ?? []);
-    const completedInBlock = (block.items ?? []).filter((item) => selected.has(item.id)).length;
-    return sum + completedInBlock;
-  }, 0);
 
   const toggleChecklistItem = (blockId: string, itemId: string) => {
     setChecklistSelections((prev) => {
@@ -440,24 +455,11 @@ export default function LabContent({
     setRevealedQuizzes((prev) => ({ ...prev, [blockId]: true }));
   };
 
-  const hasQuizInteraction = Object.values(quizAnswers).some(
-    (answersByQuestion) => Object.keys(answersByQuestion).length > 0,
-  );
-  const hasChallengeNotes = challengeNotes.trim().length > 0;
   const hasChallengeWork =
     showChallengeSection || checklistBlocks.length > 0 || quizBlocks.length > 0;
   const hasForumStep = !previewMode;
-  const videoStepDone = videoDone || !requiresWatch;
-  const challengeGuideCoreDone = challengeGuideItems
-    .slice(0, 2)
-    .every((item) => challengeGuideChecks[item.id]);
-  const challengeStepDone =
-    !hasChallengeWork ||
-    completedChecklistItems > 0 ||
-    hasQuizInteraction ||
-    hasChallengeNotes ||
-    hasUserForumComment ||
-    challengeGuideCoreDone;
+  const videoStepDone = resourceStepCompleted;
+  const challengeStepDone = !hasChallengeWork || challengeResponseSaved;
   const forumStepDone = !hasForumStep || hasUserForumComment;
 
   const scrollToSection = useCallback((id: string) => {
@@ -533,7 +535,7 @@ export default function LabContent({
   const sectionStepMeta = useMemo(() => {
     const meta = new Map<
       WorkflowStepId,
-      { order: number; status: "Listo" | "Actual" | "Pendiente"; isActive: boolean }
+      { order: number; status: WorkflowStatus; isActive: boolean }
     >();
 
     workflowSteps.forEach((step, index) => {
@@ -551,36 +553,157 @@ export default function LabContent({
   const resourceStepMeta = sectionStepMeta.get("resource");
   const challengeStepMeta = sectionStepMeta.get("challenge");
   const forumStepMeta = sectionStepMeta.get("forum");
-
-  const toggleChallengeGuideStep = (stepId: ChallengeGuideStepId) => {
-    setChallengeGuideChecks((prev) => ({ ...prev, [stepId]: !prev[stepId] }));
-  };
+  const resourceStatus: WorkflowStatus = resourceStepMeta?.status ?? "Pendiente";
+  const challengeStatus: WorkflowStatus = challengeStepMeta?.status ?? "Pendiente";
+  const forumStatus: WorkflowStatus = forumStepMeta?.status ?? "Pendiente";
+  const resourceTone = getWorkflowTone(resourceStatus);
+  const challengeTone = getWorkflowTone(challengeStatus);
+  const forumTone = getWorkflowTone(forumStatus);
+  const resourceContainerToneClass =
+    resourceStatus === "Actual"
+      ? "border-[rgba(4,164,90,0.42)] before:bg-[linear-gradient(90deg,rgba(4,164,90,0.05),rgba(4,164,90,0.62),rgba(4,164,90,0.05))]"
+      : "border-[#2d5387]/58 before:bg-[linear-gradient(90deg,rgba(76,150,255,0.05),rgba(76,150,255,0.65),rgba(76,150,255,0.05))]";
+  const challengeContainerToneClass =
+    challengeStatus === "Actual"
+      ? "border-[rgba(4,164,90,0.42)] before:bg-[linear-gradient(90deg,rgba(4,164,90,0.05),rgba(4,164,90,0.62),rgba(4,164,90,0.05))]"
+      : "border-[#2d5387]/58 before:bg-[linear-gradient(90deg,rgba(76,150,255,0.05),rgba(76,150,255,0.65),rgba(76,150,255,0.05))]";
+  const forumContainerToneClass =
+    forumStatus === "Actual"
+      ? "border-[rgba(4,164,90,0.42)] bg-[linear-gradient(160deg,rgba(9,21,52,0.95),rgba(5,13,32,0.95))] before:bg-[linear-gradient(90deg,rgba(4,164,90,0.05),rgba(4,164,90,0.62),rgba(4,164,90,0.05))]"
+      : forumStatus === "Pendiente"
+        ? "border-[rgba(76,150,255,0.68)] bg-[linear-gradient(160deg,rgba(13,33,78,0.96),rgba(7,18,45,0.96))] ring-1 ring-[rgba(76,150,255,0.2)] before:bg-[linear-gradient(90deg,rgba(76,150,255,0.12),rgba(76,150,255,0.82),rgba(76,150,255,0.12))]"
+        : "border-[#2d5387]/62 bg-[linear-gradient(160deg,rgba(9,21,52,0.95),rgba(5,13,32,0.95))] before:bg-[linear-gradient(90deg,rgba(76,150,255,0.05),rgba(76,150,255,0.62),rgba(76,150,255,0.05))]";
+  const challengeSurfaceToneClass =
+    challengeStatus === "Actual"
+      ? "border-[var(--ast-mint)]/35 bg-[rgba(0,73,44,0.2)]"
+      : "border-[var(--ast-sky)]/30 bg-[rgba(7,27,63,0.4)]";
+  const challengeLabelToneClass =
+    challengeStatus === "Actual" ? "text-[var(--ast-mint)]/90" : "text-[var(--ast-sky)]/90";
+  const challengeAccentBorderClass =
+    challengeStatus === "Actual" ? "border-[var(--ast-mint)]/35" : "border-[var(--ast-sky)]/30";
+  const challengeFocusBorderClass =
+    challengeStatus === "Actual" ? "focus:border-[var(--ast-mint)]" : "focus:border-[var(--ast-sky)]";
+  const challengeHintToneClass =
+    challengeStatus === "Actual" ? "text-[#9bcfc0]" : "text-[#9fb7da]";
+  const resourceActiveHaloClass = resourceStepMeta?.isActive
+    ? "ring-1 ring-[var(--ast-mint)]/55 shadow-[0_0_0_1px_rgba(4,164,90,0.38),0_0_30px_rgba(4,164,90,0.26),0_16px_34px_rgba(3,8,22,0.46)]"
+    : "";
+  const challengeActiveHaloClass = challengeStepMeta?.isActive
+    ? "ring-1 ring-[var(--ast-mint)]/55 shadow-[0_0_0_1px_rgba(4,164,90,0.38),0_0_30px_rgba(4,164,90,0.26),0_16px_34px_rgba(2,12,11,0.5)]"
+    : "";
+  const forumActiveHaloClass = forumStepMeta?.isActive
+    ? "ring-1 ring-[var(--ast-mint)]/52 shadow-[0_0_0_1px_rgba(4,164,90,0.34),0_0_28px_rgba(4,164,90,0.2),0_16px_34px_rgba(3,10,24,0.5)]"
+    : "";
 
   const handleForumActivityChange = useCallback(
     ({ hasUserComment }: { commentCount: number; hasUserComment: boolean }) => {
       setHasUserForumComment(hasUserComment);
+      if (typeof window !== "undefined") {
+        if (hasUserComment) {
+          window.localStorage.setItem(forumCommentMarkerKey, "1");
+        } else {
+          window.localStorage.removeItem(forumCommentMarkerKey);
+        }
+      }
     },
-    [],
+    [forumCommentMarkerKey],
   );
 
-  const handleProgressCompleted = useCallback(
-    (dayNumber: number) => {
-      onDayCompleted?.(dayNumber);
-    },
-    [onDayCompleted],
-  );
+  const toggleResourceStep = useCallback(() => {
+    setResourceStepCompleted((prev) => !prev);
+    setProgressSyncError("");
+  }, []);
 
-  const renderProgressButton = () => {
-    if (previewMode) return null;
-    return (
-      <ProgressButton
-        labId={labId}
-        dayNumber={currentDay.day_number}
-        initialCompleted={initialCompleted}
-        onCompleted={handleProgressCompleted}
-      />
-    );
-  };
+  const saveChallengeResponse = useCallback(() => {
+    const snapshot = normalizeChallengeSnapshot(challengeNotes);
+    if (!snapshot) {
+      setChallengeSaveFeedback("Escribe una respuesta antes de guardar.");
+      setChallengeResponseSaved(false);
+      setChallengeSavedSnapshot("");
+      return;
+    }
+
+    setChallengeSavedSnapshot(snapshot);
+    setChallengeResponseSaved(true);
+    setChallengeSaveFeedback("Respuesta guardada. Paso marcado como listo.");
+
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(
+        challengeManualStateKey,
+        JSON.stringify({ saved: true, snapshot }),
+      );
+    }
+
+    if (bootCompleted) {
+      const payload: DayLocalState = {
+        notes: challengeNotes,
+        checklistSelections,
+        quizAnswers,
+      };
+      void persistCloudState({
+        labId,
+        dayNumber: currentDay.day_number,
+        payload,
+        onStatus: setCloudSyncStatus,
+      });
+    }
+  }, [
+    bootCompleted,
+    challengeManualStateKey,
+    challengeNotes,
+    checklistSelections,
+    currentDay.day_number,
+    labId,
+    quizAnswers,
+  ]);
+
+  useEffect(() => {
+    if (!challengeResponseSaved) return;
+    const currentSnapshot = normalizeChallengeSnapshot(challengeNotes);
+    if (!currentSnapshot || currentSnapshot !== challengeSavedSnapshot) {
+      setChallengeResponseSaved(false);
+      setChallengeSaveFeedback("");
+    }
+  }, [challengeNotes, challengeResponseSaved, challengeSavedSnapshot]);
+
+  const allStepsCompleted = videoStepDone && challengeStepDone && forumStepDone;
+
+  useEffect(() => {
+    if (previewMode) return;
+    if (!bootCompleted || !challengeManualLoaded || !forumMarkerLoaded) return;
+    if (progressSyncInFlightRef.current) return;
+    if (allStepsCompleted === dayCompletionSynced) return;
+
+    progressSyncInFlightRef.current = true;
+    setProgressSyncError("");
+
+    void persistDayCompletion({
+      labId,
+      dayNumber: currentDay.day_number,
+      completed: allStepsCompleted,
+    })
+      .then((ok) => {
+        if (!ok) {
+          setProgressSyncError("No se pudo sincronizar el estado del día.");
+          return;
+        }
+        setDayCompletionSynced(allStepsCompleted);
+        onDayCompleted?.(currentDay.day_number, allStepsCompleted);
+      })
+      .finally(() => {
+        progressSyncInFlightRef.current = false;
+      });
+  }, [
+    allStepsCompleted,
+    bootCompleted,
+    challengeManualLoaded,
+    currentDay.day_number,
+    dayCompletionSynced,
+    forumMarkerLoaded,
+    labId,
+    onDayCompleted,
+    previewMode,
+  ]);
 
   const renderDayBlock = (
     block: DayBlock,
@@ -595,13 +718,13 @@ export default function LabContent({
         return (
           <div
             key={block.id}
-            className="lg:col-span-2 rounded-lg border border-[var(--ast-mint)]/35 bg-[rgba(0,73,44,0.18)] p-4"
+            className={`lg:col-span-2 rounded-lg border p-4 ${challengeSurfaceToneClass}`}
           >
-            <p className="mb-2 text-xs uppercase tracking-wider text-[var(--ast-mint)]/85">
+            <p className={`mb-2 text-xs uppercase tracking-wider ${challengeLabelToneClass}`}>
               Paso {index + 1}
             </p>
             <div
-              className="max-w-none text-[15px] text-[var(--ast-bone)]/95 leading-7 [&_p]:mb-3 [&_p:last-child]:mb-0 [&_ul]:my-3 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-3 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:mb-1"
+              className="max-w-none whitespace-pre-wrap text-[15px] text-[var(--ast-bone)]/95 leading-7 [&_p]:mb-3 [&_p:last-child]:mb-0 [&_ul]:my-3 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-3 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:mb-1"
               dangerouslySetInnerHTML={{ __html: safeHtml }}
             />
           </div>
@@ -614,9 +737,53 @@ export default function LabContent({
           className="lg:col-span-2 rounded-lg border border-[var(--ast-sky)]/30 bg-[rgba(4,12,31,0.72)] p-4 text-[#d6e4fb]"
         >
           <div
-            className="max-w-none text-[15px] leading-7 [&_p]:mb-3 [&_p:last-child]:mb-0 [&_ul]:my-3 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-3 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:mb-1"
+            className="max-w-none whitespace-pre-wrap text-[15px] leading-7 [&_p]:mb-3 [&_p:last-child]:mb-0 [&_ul]:my-3 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-3 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:mb-1"
             dangerouslySetInnerHTML={{ __html: safeHtml }}
           />
+        </div>
+      );
+    }
+
+    if (block.type === "challenge_steps") {
+      const steps = (block.steps ?? []).filter((step) =>
+        hasVisibleTextContent(sanitizeRichText(step.text ?? "")),
+      );
+      if (steps.length === 0) return null;
+      const titleHtml = sanitizeRichText(block.title ?? "");
+      const hasTitle = hasVisibleTextContent(titleHtml);
+
+      return (
+        <div
+          key={block.id}
+          className={`lg:col-span-2 rounded-lg border p-4 ${section === "challenge" ? challengeSurfaceToneClass : "border-[var(--ast-sky)]/30 bg-[rgba(4,12,31,0.72)]"}`}
+        >
+          {hasTitle && (
+            <div
+              className={`mb-3 text-base font-semibold [&_p]:my-0.5 ${section === "challenge" ? challengeLabelToneClass : "text-[var(--ast-sky)]/90"}`}
+              dangerouslySetInnerHTML={{ __html: titleHtml }}
+            />
+          )}
+          <div className="space-y-2.5">
+            {steps.map((step, stepIndex) => {
+              const stepHtml = sanitizeRichText(step.text ?? "");
+              return (
+                <article
+                  key={step.id}
+                  className={`rounded-md border p-3 ${section === "challenge" ? challengeAccentBorderClass : "border-[var(--ast-sky)]/28"} bg-[rgba(3,10,24,0.55)]`}
+                >
+                  <p
+                    className={`mb-1 text-[11px] font-semibold uppercase tracking-[0.12em] ${section === "challenge" ? challengeLabelToneClass : "text-[var(--ast-sky)]/88"}`}
+                  >
+                    {step.label?.trim() || `Paso ${stepIndex + 1}`}
+                  </p>
+                  <div
+                    className="max-w-none whitespace-pre-wrap text-[15px] text-[var(--ast-bone)]/95 leading-7 [&_p]:mb-2.5 [&_p:last-child]:mb-0 [&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:mb-1"
+                    dangerouslySetInnerHTML={{ __html: stepHtml }}
+                  />
+                </article>
+              );
+            })}
+          </div>
         </div>
       );
     }
@@ -669,7 +836,9 @@ export default function LabContent({
           {isPrimaryResourceVideo && primaryResourceVideoId ? (
             <VideoPlayer
               videoId={primaryResourceVideoId}
-              onFinished={() => setVideoDone(true)}
+              onFinished={() => {}}
+              posterUrl={labPosterUrl}
+              posterTitle={labTitle}
             />
           ) : embeddedVideoId ? (
             <iframe
@@ -715,6 +884,8 @@ export default function LabContent({
       const selected = new Set(checklistSelections[block.id] ?? []);
       const itemCount = block.items?.length ?? 0;
       const doneCount = (block.items ?? []).filter((item) => selected.has(item.id)).length;
+      const checklistTitleHtml = sanitizeRichText(block.title ?? "");
+      const hasChecklistTitle = hasVisibleTextContent(checklistTitleHtml);
 
       return (
         <div
@@ -722,9 +893,16 @@ export default function LabContent({
           className="rounded-lg border border-[var(--ast-sky)]/30 bg-[rgba(4,12,31,0.72)] p-4 space-y-3"
         >
           <div className="flex items-center justify-between gap-3">
-            <h3 className="text-lg font-semibold text-[var(--ast-mint)]">
-              {block.title?.trim() || "Checklist del dia"}
-            </h3>
+            {hasChecklistTitle ? (
+              <div
+                className="text-lg font-semibold text-[var(--ast-mint)] [&_p]:my-0.5"
+                dangerouslySetInnerHTML={{ __html: checklistTitleHtml }}
+              />
+            ) : (
+              <h3 className="text-lg font-semibold text-[var(--ast-mint)]">
+                Checklist del dia
+              </h3>
+            )}
             <span className="text-xs px-2 py-1 rounded-full bg-white/10 text-[#d6e4fb]">
               {doneCount}/{itemCount}
             </span>
@@ -733,6 +911,7 @@ export default function LabContent({
           <div className="space-y-2">
             {(block.items ?? []).map((item) => {
               const checked = selected.has(item.id);
+              const itemHtml = sanitizeRichText(item.text ?? "");
               return (
                 <label
                   key={item.id}
@@ -744,9 +923,10 @@ export default function LabContent({
                     onChange={() => toggleChecklistItem(block.id, item.id)}
                     className="mt-1"
                   />
-                  <span className={checked ? "text-[#d6e4fb] line-through" : "text-[#e3ecfd]"}>
-                    {item.text}
-                  </span>
+                  <div
+                    className={`whitespace-pre-wrap [&_p]:my-0.5 ${checked ? "text-[#d6e4fb] line-through" : "text-[#e3ecfd]"}`}
+                    dangerouslySetInnerHTML={{ __html: itemHtml }}
+                  />
                 </label>
               );
             })}
@@ -759,6 +939,8 @@ export default function LabContent({
       const answersForBlock = quizAnswers[block.id] ?? {};
       const quizResult = getQuizResult(block, answersForBlock);
       const revealResults = Boolean(revealedQuizzes[block.id]);
+      const quizTitleHtml = sanitizeRichText(block.title ?? "");
+      const hasQuizTitle = hasVisibleTextContent(quizTitleHtml);
 
       return (
         <div
@@ -766,9 +948,14 @@ export default function LabContent({
           className="rounded-lg border border-[var(--ast-sky)]/30 bg-[rgba(4,12,31,0.72)] p-4 space-y-4"
         >
           <div className="flex items-center justify-between gap-3">
-            <h3 className="text-lg font-semibold text-[var(--ast-sky)]">
-              {block.title?.trim() || "Quiz rapido"}
-            </h3>
+            {hasQuizTitle ? (
+              <div
+                className="text-lg font-semibold text-[var(--ast-sky)] [&_p]:my-0.5"
+                dangerouslySetInnerHTML={{ __html: quizTitleHtml }}
+              />
+            ) : (
+              <h3 className="text-lg font-semibold text-[var(--ast-sky)]">Quiz rapido</h3>
+            )}
             {revealResults && (
               <span className="text-xs px-2 py-1 rounded-full bg-white/10 text-[#d6e4fb]">
                 {quizResult.correct}/{quizResult.total}
@@ -784,15 +971,22 @@ export default function LabContent({
                 question.correctIndex >= 0;
               const isCorrect =
                 hasCorrectAnswer && selectedOption === question.correctIndex;
+              const promptHtml = sanitizeRichText(question.prompt ?? "");
+              const explanationHtml = sanitizeRichText(question.explanation ?? "");
+              const hasExplanation = hasVisibleTextContent(explanationHtml);
 
               return (
                 <div
                   key={question.id}
                   className="rounded border border-[var(--ast-sky)]/30 p-3 bg-[rgba(3,10,24,0.68)] space-y-2"
                 >
-                  <p className="text-sm font-semibold text-[var(--ast-bone)]">
-                    {questionIndex + 1}. {question.prompt}
-                  </p>
+                  <div className="text-sm font-semibold text-[var(--ast-bone)]">
+                    <span className="mr-1">{questionIndex + 1}.</span>
+                    <span
+                      className="whitespace-pre-wrap [&_p]:my-0.5 inline"
+                      dangerouslySetInnerHTML={{ __html: promptHtml }}
+                    />
+                  </div>
 
                   <div className="space-y-2">
                     {(question.options ?? []).map((option, optionIndex) => (
@@ -821,8 +1015,11 @@ export default function LabContent({
                     </p>
                   )}
 
-                  {revealResults && question.explanation && (
-                    <p className="text-xs text-[#9fb3d6]">{question.explanation}</p>
+                  {revealResults && hasExplanation && (
+                    <div
+                      className="whitespace-pre-wrap text-xs text-[#9fb3d6] [&_p]:my-0.5"
+                      dangerouslySetInnerHTML={{ __html: explanationHtml }}
+                    />
                   )}
                 </div>
               );
@@ -841,6 +1038,79 @@ export default function LabContent({
               Respondidas: {quizResult.answered}/{quizResult.total}
             </p>
           </div>
+        </div>
+      );
+    }
+
+    return null;
+  };
+
+  const renderResourceSidebarItem = (block: DayBlock, index: number) => {
+    const slot = block.resourceSlot;
+
+    if (slot === "text" && block.type === "text") {
+      const safeHtml = sanitizeRichText(block.text ?? "");
+      if (!hasVisibleTextContent(safeHtml)) return null;
+
+      return (
+        <div className="rounded-md border border-[var(--ast-sky)]/24 bg-[rgba(7,27,63,0.32)] p-2.5">
+          <div
+            className="max-w-none whitespace-pre-wrap text-xs leading-relaxed text-[var(--ast-bone)]/90 [&_p]:mb-2 [&_p:last-child]:mb-0 [&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:mb-1"
+            dangerouslySetInnerHTML={{ __html: safeHtml }}
+          />
+        </div>
+      );
+    }
+
+    if (slot === "media" && block.type === "image" && typeof block.url === "string" && block.url.trim()) {
+      return (
+        <div className="rounded-md border border-[var(--ast-sky)]/24 bg-[rgba(7,27,63,0.32)] p-2.5">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.13em] text-[var(--ast-sky)]/90">
+            {block.caption?.trim() || `Imagen ${index + 1}`}
+          </p>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={block.url}
+            alt={block.caption?.trim() || `Imagen ${index + 1}`}
+            loading="lazy"
+            className="mt-2 w-full rounded-md border border-[var(--ast-sky)]/25 object-cover"
+          />
+        </div>
+      );
+    }
+
+    if (slot === "link" && typeof block.url === "string" && block.url.trim()) {
+      return (
+        <div className="rounded-md border border-[var(--ast-sky)]/24 bg-[rgba(7,27,63,0.32)] p-2.5">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.13em] text-[var(--ast-sky)]/90">
+            {block.caption?.trim() || `Liga ${index + 1}`}
+          </p>
+          <a
+            href={block.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-1 inline-flex text-xs font-semibold text-[var(--ast-sky)] hover:text-[var(--ast-mint)] hover:underline"
+          >
+            Abrir liga
+          </a>
+        </div>
+      );
+    }
+
+    if (slot === "download" && block.type === "file" && typeof block.url === "string" && block.url.trim()) {
+      return (
+        <div className="rounded-md border border-[var(--ast-sky)]/24 bg-[rgba(7,27,63,0.32)] p-2.5">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.13em] text-[var(--ast-sky)]/90">
+            {block.caption?.trim() || `Descargable ${index + 1}`}
+          </p>
+          <a
+            href={block.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-1 inline-flex rounded bg-[var(--ast-cobalt)] px-2.5 py-1 text-xs font-semibold text-white hover:bg-[var(--ast-atlantic)]"
+          >
+            Descargar
+          </a>
         </div>
       );
     }
@@ -891,9 +1161,9 @@ export default function LabContent({
                       title={step.label}
                       className={`cursor-pointer rounded-md border px-2.5 py-1.5 text-left text-[11px] font-semibold whitespace-nowrap transition ${
                         step.done
-                          ? "border-[var(--ast-mint)]/55 bg-[rgba(4,164,90,0.1)] text-[var(--ast-mint)]"
+                          ? "border-[var(--ast-sky)]/48 bg-[rgba(7,68,168,0.24)] text-[var(--ast-sky)]"
                           : isActive
-                            ? "border-[var(--ast-sky)]/62 bg-[rgba(11,38,86,0.42)] text-[#e6f0ff]"
+                            ? "border-[var(--ast-mint)]/58 bg-[rgba(4,164,90,0.12)] text-[var(--ast-mint)]"
                             : "border-[var(--ast-sky)]/24 bg-[rgba(6,18,43,0.42)] text-[#a9c1e3] hover:border-[var(--ast-sky)]/46 hover:text-[#dce9ff]"
                       }`}
                     >
@@ -943,35 +1213,31 @@ export default function LabContent({
           {showResourceSection && (
             <section
               id="day-resource"
-              className={`relative overflow-hidden rounded-2xl border border-[#2d5387]/58 bg-[linear-gradient(160deg,rgba(8,18,45,0.96),rgba(5,15,38,0.94))] shadow-[0_14px_30px_rgba(3,8,22,0.4)] transition-all duration-300 before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-[linear-gradient(90deg,rgba(76,150,255,0.05),rgba(76,150,255,0.65),rgba(76,150,255,0.05))] ${resourceCollapsed ? "p-3 md:p-4" : "p-5 md:p-6"}`}
+              className={`relative overflow-hidden rounded-2xl border bg-[linear-gradient(160deg,rgba(7,17,42,0.97),rgba(3,10,27,0.96))] shadow-[0_14px_30px_rgba(3,8,22,0.4)] transition-all duration-300 before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px ${resourceContainerToneClass} ${resourceCollapsed ? "p-3 md:p-4" : "p-5 md:p-6"} ${resourceActiveHaloClass}`}
             >
               <div className={resourceCollapsed ? "mb-0" : "mb-5 border-b border-[var(--ast-sky)]/18 pb-3"}>
                 <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
                   <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-3">
                     {resourceStepMeta && (
                       <span
-                        className={`mt-0.5 inline-flex h-7 min-w-7 items-center justify-center rounded-full text-[11px] font-bold ${
-                          resourceStepMeta.isActive
-                            ? "bg-[var(--ast-mint)] text-[var(--ast-black)]"
-                            : "bg-[var(--ast-cobalt)]/65 text-[var(--ast-sky)]"
-                        }`}
+                        className={`mt-0.5 inline-flex h-7 min-w-7 items-center justify-center rounded-full text-[11px] font-bold ${resourceTone.stepBadgeClass}`}
                       >
                         {resourceStepMeta.order}
                       </span>
                     )}
                     <div className="min-w-0">
                       {resourceStepMeta && (
-                        <p className="inline-flex rounded-full border border-[var(--ast-sky)]/30 bg-[rgba(7,27,63,0.5)] px-2 py-[2px] text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--ast-sky)]/90">
+                        <p className={`inline-flex rounded-full border px-2 py-[2px] text-[10px] font-semibold uppercase tracking-[0.15em] ${resourceTone.statusBadgeClass}`}>
                           {resourceStepMeta.status}
                         </p>
                       )}
                       <h2
-                        className={`mt-1 font-black tracking-tight text-[#d8e7ff] ${resourceCollapsed ? "text-xl" : "text-[1.9rem] md:text-[2.05rem]"}`}
+                        className={`mt-1 font-black tracking-tight ${resourceTone.titleClass} ${resourceCollapsed ? "text-xl" : "text-[1.9rem] md:text-[2.05rem]"}`}
                       >
                         Recurso principal del Dia {currentDay.day_number}
                       </h2>
                       {resourceCollapsed && (
-                        <p className="mt-1 text-sm text-[#9bb1d2]">
+                        <p className={`mt-1 text-sm ${resourceTone.metaClass}`}>
                           {resourceBlocksForRender.length} bloques · ~{estimatedMinutes} min
                         </p>
                       )}
@@ -980,7 +1246,7 @@ export default function LabContent({
                   <button
                     type="button"
                     onClick={() => setResourceCollapsed((prev) => !prev)}
-                    className="inline-flex items-center gap-1.5 rounded-full border border-[var(--ast-sky)]/28 bg-[rgba(4,12,31,0.4)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#d8e7ff] transition hover:border-[var(--ast-sky)]/48 hover:text-white"
+                    className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] transition ${resourceTone.toggleButtonClass}`}
                   >
                     {resourceCollapsed ? "Expandir" : "Colapsar"}
                     <span aria-hidden="true" className="text-[11px] leading-none">
@@ -992,43 +1258,6 @@ export default function LabContent({
 
               {!resourceCollapsed && (
                 <>
-                  {resourceNarrativePreview && !useResourceSidebarLayout && (
-                    <div className="mb-4 border-l-2 border-[var(--ast-sky)]/45 pl-3">
-                      <p className="text-xs uppercase tracking-wider text-[var(--ast-sky)]/90">
-                        Resumen ejecutivo del recurso
-                      </p>
-                      <p className="mt-2 text-sm leading-relaxed text-[var(--ast-bone)]">
-                        {showResourceNarrative || !hasLongNarrative
-                          ? resourceNarrative
-                          : resourceNarrativePreview}
-                      </p>
-                      {hasLongNarrative && (
-                        <button
-                          type="button"
-                          onClick={() => setShowResourceNarrative((prev) => !prev)}
-                          className="mt-2 text-xs font-semibold text-[var(--ast-mint)] hover:underline"
-                        >
-                          {showResourceNarrative
-                            ? "Mostrar versión corta"
-                            : "Ver explicación completa"}
-                        </button>
-                      )}
-                    </div>
-                  )}
-
-                  {showTakeawayPanel && (
-                    <div className="mb-4 border-l-2 border-[var(--ast-mint)]/55 pl-3">
-                      <p className="text-xs uppercase tracking-wider text-[var(--ast-sky)]/90">
-                        Qué debes captar antes de seguir
-                      </p>
-                      <ul className="mt-2 space-y-1 text-sm text-[var(--ast-bone)]">
-                        {filteredKeyTakeaways.map((item, itemIndex) => (
-                          <li key={`takeaway_${itemIndex}`}>• {item}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
                   {resourceBlocksForRender.length === 0 ? (
                     <p className="text-[#8ca2c4]">
                       Este dia no tiene bloques en recurso principal todavia.
@@ -1044,34 +1273,18 @@ export default function LabContent({
                             Recursos
                           </p>
 
-                          {resourceNarrativePreview && (
-                            <div className="mt-2 rounded-md border border-[var(--ast-sky)]/28 bg-[rgba(7,27,63,0.4)] p-2.5">
-                              <p className="text-[10px] font-semibold uppercase tracking-[0.13em] text-[var(--ast-sky)]/90">
-                                Resumen ejecutivo
-                              </p>
-                              <p className="mt-1 text-xs leading-relaxed text-[var(--ast-bone)]/90">
-                                {showResourceNarrative || !hasLongNarrative
-                                  ? resourceNarrative
-                                  : resourceNarrativePreview}
-                              </p>
-                              {hasLongNarrative && (
-                                <button
-                                  type="button"
-                                  onClick={() => setShowResourceNarrative((prev) => !prev)}
-                                  className="mt-1.5 text-[11px] font-semibold text-[var(--ast-mint)] hover:underline"
-                                >
-                                  {showResourceNarrative
-                                    ? "Mostrar versión corta"
-                                    : "Ver explicación completa"}
-                                </button>
-                              )}
-                            </div>
-                          )}
-
                           <div className="mt-3 space-y-3">
-                            {downloadableResourceBlocks.map((block, index) => (
-                              <div key={block.id}>{renderDayBlock(block, index, "resource")}</div>
-                            ))}
+                            {resourceSidebarBlocks.length > 0 ? (
+                              resourceSidebarBlocks.map((block, index) => (
+                                <div key={block.id}>{renderResourceSidebarItem(block, index)}</div>
+                              ))
+                            ) : (
+                              <div className="rounded-md border border-[var(--ast-sky)]/24 bg-[rgba(7,27,63,0.32)] p-2.5">
+                                <p className="text-[11px] leading-relaxed text-[#a7bfdc]">
+                                  Configura desde Admin qué recursos mostrar en este panel.
+                                </p>
+                              </div>
+                            )}
                           </div>
                         </aside>
                       </div>
@@ -1092,9 +1305,26 @@ export default function LabContent({
                     </div>
                   )}
 
-                  <div className="mt-6 flex justify-end">
-                    {renderProgressButton()}
-                  </div>
+                  {!previewMode && (
+                    <div className="mt-6 flex flex-col items-end gap-1.5">
+                      <button
+                        type="button"
+                        onClick={toggleResourceStep}
+                        className={`rounded-md border px-4 py-1.5 text-xs font-semibold transition ${
+                          resourceStepCompleted
+                            ? "border-[var(--ast-sky)]/55 bg-[rgba(7,68,168,0.34)] text-[var(--ast-sky)] hover:border-[var(--ast-mint)] hover:text-[var(--ast-mint)]"
+                            : "border-[var(--ast-sky)]/35 bg-transparent text-[var(--ast-sky)]/90 hover:border-[var(--ast-mint)] hover:text-[var(--ast-mint)]"
+                        }`}
+                      >
+                        {resourceStepCompleted
+                          ? "Marcar recurso como pendiente"
+                          : "Marcar recurso como listo"}
+                      </button>
+                      {progressSyncError && (
+                        <p className="text-[11px] text-red-300">{progressSyncError}</p>
+                      )}
+                    </div>
+                  )}
                 </>
               )}
             </section>
@@ -1103,35 +1333,31 @@ export default function LabContent({
           {showChallengeSection && (
             <section
               id="day-challenge"
-              className={`relative overflow-hidden rounded-2xl border border-[rgba(4,164,90,0.42)] bg-[linear-gradient(160deg,rgba(5,23,40,0.96),rgba(4,20,31,0.95))] shadow-[0_14px_30px_rgba(2,12,11,0.44)] transition-all duration-300 before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-[linear-gradient(90deg,rgba(4,164,90,0.05),rgba(4,164,90,0.62),rgba(4,164,90,0.05))] ${challengeCollapsed ? "p-3 md:p-4" : "p-5 md:p-6"}`}
+              className={`relative overflow-hidden rounded-2xl border bg-[linear-gradient(160deg,rgba(5,27,38,0.97),rgba(3,18,27,0.96))] shadow-[0_14px_30px_rgba(2,12,11,0.44)] transition-all duration-300 before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px ${challengeContainerToneClass} ${challengeCollapsed ? "p-3 md:p-4" : "p-5 md:p-6"} ${challengeActiveHaloClass}`}
             >
               <div
-                className={`grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 ${challengeCollapsed ? "mb-0" : "mb-5 border-b border-[var(--ast-mint)]/18 pb-3"}`}
+                className={`grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 ${challengeCollapsed ? "mb-0" : `mb-5 border-b ${challengeStatus === "Actual" ? "border-[var(--ast-mint)]/18" : "border-[var(--ast-sky)]/18"} pb-3`}`}
               >
                 <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-3">
                   {challengeStepMeta && (
                     <span
-                      className={`mt-0.5 inline-flex h-7 min-w-7 items-center justify-center rounded-full text-[11px] font-bold ${
-                        challengeStepMeta.isActive
-                          ? "bg-[var(--ast-mint)] text-[var(--ast-black)]"
-                          : "bg-[var(--ast-cobalt)]/65 text-[var(--ast-sky)]"
-                      }`}
+                      className={`mt-0.5 inline-flex h-7 min-w-7 items-center justify-center rounded-full text-[11px] font-bold ${challengeTone.stepBadgeClass}`}
                     >
                       {challengeStepMeta.order}
                     </span>
                   )}
                   <div className="min-w-0">
                     {challengeStepMeta && (
-                      <p className="inline-flex rounded-full border border-[var(--ast-mint)]/35 bg-[rgba(0,73,44,0.24)] px-2 py-[2px] text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--ast-mint)]/92">
+                      <p className={`inline-flex rounded-full border px-2 py-[2px] text-[10px] font-semibold uppercase tracking-[0.15em] ${challengeTone.statusBadgeClass}`}>
                         {challengeStepMeta.status}
                       </p>
                     )}
-                    <h2 className={`mt-1 font-black tracking-tight text-[#54efb3] ${challengeCollapsed ? "text-xl" : "text-[1.9rem] md:text-[2.05rem]"}`}>
+                    <h2 className={`mt-1 font-black tracking-tight ${challengeTone.titleClass} ${challengeCollapsed ? "text-xl" : "text-[1.9rem] md:text-[2.05rem]"}`}>
                       Reto del Dia {currentDay.day_number}
                     </h2>
                     {challengeCollapsed && (
-                      <p className="mt-1 text-sm text-[#97c7b8]">
-                        {challengeBlocks.length} bloques · estado: {challengeStepDone ? "avanzado" : "pendiente"}
+                      <p className={`mt-1 text-sm ${challengeTone.metaClass}`}>
+                        {challengeBlocks.length} bloques · estado: {challengeStepDone ? "listo" : "pendiente"}
                       </p>
                     )}
                   </div>
@@ -1139,7 +1365,7 @@ export default function LabContent({
                 <button
                   type="button"
                   onClick={() => setChallengeCollapsed((prev) => !prev)}
-                  className="inline-flex items-center gap-1.5 rounded-full border border-[var(--ast-mint)]/24 bg-[rgba(0,44,32,0.28)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#bde8d6] transition hover:border-[var(--ast-mint)]/46 hover:text-[#e8fff5]"
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] transition ${challengeTone.toggleButtonClass}`}
                 >
                   {challengeCollapsed ? "Expandir" : "Colapsar"}
                   <span aria-hidden="true" className="text-[11px] leading-none">
@@ -1150,61 +1376,74 @@ export default function LabContent({
 
               {!challengeCollapsed && (
                 <>
-                  <div className="mb-4 rounded-lg border border-[var(--ast-mint)]/35 bg-[rgba(0,73,44,0.2)] p-4">
-                    <div className="mb-2 flex items-center justify-between gap-3">
-                      <p className="text-xs uppercase tracking-wider text-[var(--ast-mint)]/90">
-                        Ejecución guiada
-                      </p>
-                      <span className="rounded-full border border-[var(--ast-mint)]/45 bg-[rgba(4,164,90,0.14)] px-2 py-0.5 text-[11px] text-[var(--ast-bone)]">
-                        {Object.values(challengeGuideChecks).filter(Boolean).length}/
-                        {challengeGuideItems.length}
-                      </span>
-                    </div>
-                    <div className="grid gap-2 md:grid-cols-3">
-                      {challengeGuideItems.map((item) => (
-                        <label
-                          key={item.id}
-                          className="flex items-center gap-2 rounded border border-[var(--ast-mint)]/30 bg-[rgba(4,12,31,0.58)] px-3 py-2 text-sm text-[var(--ast-bone)]"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={challengeGuideChecks[item.id]}
-                            onChange={() =>
-                              toggleChallengeGuideStep(item.id)
-                            }
-                            className="h-4 w-4 accent-[var(--ast-mint)]"
-                          />
-                          <span>{item.label}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                     {challengeBlocks.map((block, index) =>
                       renderDayBlock(block, index, "challenge"),
                     )}
                   </div>
 
-                  <div className="mt-4 rounded-lg border border-[var(--ast-mint)]/35 bg-[rgba(0,73,44,0.16)] p-4">
-                    <p className="text-xs uppercase tracking-wider text-[var(--ast-mint)]/90">
+                  <div className={`mt-4 rounded-lg border p-4 ${challengeSurfaceToneClass}`}>
+                    <p className={`text-xs uppercase tracking-wider ${challengeLabelToneClass}`}>
                       Tu respuesta del reto
                     </p>
                     <textarea
                       value={challengeNotes}
-                      onChange={(e) => setChallengeNotes(e.target.value)}
+                      onChange={(e) => {
+                        const nextValue = e.target.value;
+                        setChallengeNotes(nextValue);
+                        const nextSnapshot = normalizeChallengeSnapshot(nextValue);
+                        if (
+                          challengeResponseSaved &&
+                          nextSnapshot !== challengeSavedSnapshot
+                        ) {
+                          setChallengeResponseSaved(false);
+                        }
+                        setChallengeSaveFeedback("");
+                      }}
                       placeholder="Escribe aquí tu respuesta o reflexión del reto de hoy..."
                       rows={5}
-                      className="mt-2 w-full rounded-lg border border-[var(--ast-mint)]/35 bg-[rgba(4,12,31,0.72)] p-3 text-sm text-[var(--ast-bone)] outline-none focus:border-[var(--ast-mint)]"
+                      className={`mt-2 w-full rounded-lg border bg-[rgba(4,12,31,0.72)] p-3 text-sm text-[var(--ast-bone)] outline-none ${challengeAccentBorderClass} ${challengeFocusBorderClass}`}
                     />
-                    <p className="mt-1 text-[11px] text-[#9bcfc0]">
-                      Se guarda automáticamente para este día.
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={saveChallengeResponse}
+                        className="rounded-md border border-[var(--ast-mint)]/55 bg-[rgba(4,164,90,0.18)] px-3 py-1.5 text-xs font-semibold text-[var(--ast-mint)] transition hover:bg-[rgba(4,164,90,0.28)]"
+                      >
+                        Guardar respuesta
+                      </button>
+                      {challengeSaveFeedback && (
+                        <p className="text-[11px] text-[#b7d4f6]">{challengeSaveFeedback}</p>
+                      )}
+                      {challengeResponseSaved && !challengeSaveFeedback && (
+                        <p className="text-[11px] text-[#9bcfc0]">
+                          Paso listo. Si editas el texto, vuelve a pendiente hasta guardar otra vez.
+                        </p>
+                      )}
+                    </div>
+                    <p className={`mt-1 text-[11px] ${challengeHintToneClass}`}>
+                      El paso se marca como listo solo cuando guardas manualmente.
                     </p>
                   </div>
 
-                  {!showResourceSection && (
-                    <div className="mt-6 flex justify-end">
-                      {renderProgressButton()}
+                  {!showResourceSection && !previewMode && (
+                    <div className="mt-6 flex flex-col items-end gap-1.5">
+                      <button
+                        type="button"
+                        onClick={toggleResourceStep}
+                        className={`rounded-md border px-4 py-1.5 text-xs font-semibold transition ${
+                          resourceStepCompleted
+                            ? "border-[var(--ast-sky)]/55 bg-[rgba(7,68,168,0.34)] text-[var(--ast-sky)] hover:border-[var(--ast-mint)] hover:text-[var(--ast-mint)]"
+                            : "border-[var(--ast-sky)]/35 bg-transparent text-[var(--ast-sky)]/90 hover:border-[var(--ast-mint)] hover:text-[var(--ast-mint)]"
+                        }`}
+                      >
+                        {resourceStepCompleted
+                          ? "Marcar recurso como pendiente"
+                          : "Marcar recurso como listo"}
+                      </button>
+                      {progressSyncError && (
+                        <p className="text-[11px] text-red-300">{progressSyncError}</p>
+                      )}
                     </div>
                   )}
                 </>
@@ -1214,32 +1453,28 @@ export default function LabContent({
 
           <section
             id="day-forum"
-            className={`relative overflow-hidden rounded-2xl border border-[#2d5387]/58 bg-[linear-gradient(160deg,rgba(9,21,52,0.95),rgba(5,13,32,0.95))] shadow-[0_14px_30px_rgba(3,10,24,0.44)] transition-all duration-300 before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-[linear-gradient(90deg,rgba(76,150,255,0.05),rgba(76,150,255,0.62),rgba(76,150,255,0.05))] ${forumCollapsed ? "p-3 md:p-4" : "p-5 md:p-6"}`}
+            className={`relative overflow-hidden rounded-2xl border shadow-[0_14px_30px_rgba(3,10,24,0.44)] transition-all duration-300 before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px ${forumContainerToneClass} ${forumCollapsed ? "p-3 md:p-4" : "p-5 md:p-6"} ${forumActiveHaloClass}`}
           >
-            <div className={`grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 ${forumCollapsed ? "" : "mb-5 border-b border-[var(--ast-sky)]/18 pb-3"}`}>
+            <div className={`grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 ${forumCollapsed ? "" : `mb-5 border-b ${forumStatus === "Actual" ? "border-[var(--ast-mint)]/18" : "border-[var(--ast-sky)]/18"} pb-3`}`}>
               <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-3">
                 {forumStepMeta && (
                   <span
-                    className={`mt-0.5 inline-flex h-7 min-w-7 items-center justify-center rounded-full text-[11px] font-bold ${
-                      forumStepMeta.isActive
-                        ? "bg-[var(--ast-mint)] text-[var(--ast-black)]"
-                        : "bg-[var(--ast-cobalt)]/65 text-[var(--ast-sky)]"
-                    }`}
+                    className={`mt-0.5 inline-flex h-7 min-w-7 items-center justify-center rounded-full text-[11px] font-bold ${forumTone.stepBadgeClass}`}
                   >
                     {forumStepMeta.order}
                   </span>
                 )}
                 <div className="min-w-0">
                   {forumStepMeta && (
-                    <p className="inline-flex rounded-full border border-[var(--ast-sky)]/30 bg-[rgba(7,27,63,0.5)] px-2 py-[2px] text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--ast-sky)]/90">
+                    <p className={`inline-flex rounded-full border px-2 py-[2px] text-[10px] font-semibold uppercase tracking-[0.15em] ${forumTone.statusBadgeClass}`}>
                       {forumStepMeta.status}
                     </p>
                   )}
-                  <h2 className={`mt-1 font-black tracking-tight text-[#4beaa4] ${forumCollapsed ? "text-xl" : "text-[1.9rem] md:text-[2.05rem]"}`}>
+                  <h2 className={`mt-1 font-black tracking-tight ${forumTone.titleClass} ${forumCollapsed ? "text-xl" : "text-[1.9rem] md:text-[2.05rem]"}`}>
                     Foro de Discusión
                   </h2>
                   {forumCollapsed && (
-                    <p className="mt-1 text-sm text-[#9db4d6]">
+                    <p className={`mt-1 text-sm ${forumTone.metaClass}`}>
                       {forumStepDone
                         ? "Participación lista o completada"
                         : "Comparte tu aprendizaje en el foro"}
@@ -1250,7 +1485,7 @@ export default function LabContent({
               <button
                 type="button"
                 onClick={() => setForumCollapsed((prev) => !prev)}
-                className="inline-flex items-center gap-1.5 rounded-full border border-[var(--ast-sky)]/28 bg-[rgba(4,12,31,0.4)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#d8e7ff] transition hover:border-[var(--ast-sky)]/48 hover:text-white"
+                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] transition ${forumTone.toggleButtonClass}`}
               >
                 {forumCollapsed ? "Expandir" : "Colapsar"}
                 <span aria-hidden="true" className="text-[11px] leading-none">
@@ -1357,6 +1592,7 @@ function getPrimaryRouteLabel(block: DayBlock | undefined): string {
   if (block.type === "text") return "Lectura principal";
   if (block.type === "checklist") return "Checklist principal";
   if (block.type === "quiz") return "Quiz principal";
+  if (block.type === "challenge_steps") return "Reto guiado";
   return "Recurso principal";
 }
 
@@ -1465,114 +1701,33 @@ function estimateDayMinutes(
       const questionCount = block.questions?.length ?? 0;
       total += Math.max(4, questionCount * 2);
     }
+    if (block.type === "challenge_steps") {
+      total += Math.max(5, (block.steps?.length ?? 0) * 2);
+    }
   }
 
   return Math.min(90, Math.max(8, total));
 }
 
-function buildChallengeGuideItems(challengeBlocks: DayBlock[]): ChallengeGuideStep[] {
-  const stepIds: ChallengeGuideStepId[] = ["scan", "filter", "publish"];
-  const fallbackLabels = [
-    "Revisé la consigna del reto",
-    "Ejecuté la actividad principal",
-    "Registré mi resultado final",
-  ];
-
-  const candidates = collectChallengeGuideCandidates(challengeBlocks);
-  const resolvedLabels = [...candidates];
-  while (resolvedLabels.length < stepIds.length) {
-    resolvedLabels.push(fallbackLabels[resolvedLabels.length]);
+function canRenderResourceSidebarItem(block: DayBlock): boolean {
+  const slot = block.resourceSlot;
+  if (slot === "text") {
+    return block.type === "text" && stripRichText(block.text ?? "").trim().length > 0;
   }
 
-  return stepIds.map((id, index) => ({
-    id,
-    label: `${index + 1}) ${limitText(resolvedLabels[index], 72)}`,
-  }));
-}
-
-function collectChallengeGuideCandidates(challengeBlocks: DayBlock[]): string[] {
-  const textCandidates: string[] = [];
-
-  for (const block of challengeBlocks) {
-    if (block.type === "checklist") {
-      for (const item of block.items ?? []) {
-        textCandidates.push(item.text);
-      }
-      continue;
-    }
-
-    if (block.type === "text") {
-      textCandidates.push(...splitTextLines(stripRichText(block.text ?? "")));
-      continue;
-    }
-
-    if (block.type === "quiz") {
-      for (const question of block.questions ?? []) {
-        textCandidates.push(question.prompt);
-      }
-      continue;
-    }
-
-    if (block.caption) {
-      textCandidates.push(block.caption);
-    }
+  if (slot === "media") {
+    return block.type === "image" && Boolean(block.url?.trim());
   }
 
-  const uniqueLabels: string[] = [];
-  const seen = new Set<string>();
-  for (const candidate of textCandidates) {
-    const normalized = normalizeChallengeGuideCandidate(candidate);
-    if (!normalized) continue;
-    const fingerprint = normalizeSummaryText(normalized);
-    if (!fingerprint || seen.has(fingerprint)) continue;
-    seen.add(fingerprint);
-    uniqueLabels.push(normalized);
-    if (uniqueLabels.length === 3) break;
+  if (slot === "download") {
+    return block.type === "file" && Boolean(block.url?.trim());
   }
 
-  return uniqueLabels;
-}
+  if (slot === "link") {
+    return Boolean(block.url?.trim());
+  }
 
-function normalizeChallengeGuideCandidate(raw: string): string {
-  const base = firstSentence(stripRichText(raw))
-    .replace(/^\s*(paso|step)\s*\d+\s*[:.)-]?\s*/i, "")
-    .replace(/^\s*\d+\s*[:.)-]\s*/, "")
-    .trim();
-
-  if (base.length < 8) return "";
-  return base.charAt(0).toUpperCase() + base.slice(1);
-}
-
-function buildKeyTakeaways(resourceBlocks: DayBlock[]): string[] {
-  const textBlocks = resourceBlocks.filter((block) => block.type === "text");
-  const lines = textBlocks.flatMap((block) =>
-    splitTextLines(stripRichText(block.text ?? "")),
-  );
-  return lines.slice(0, 3).map((line) => limitText(line, 120));
-}
-
-function getResourceTextLines(resourceBlocks: DayBlock[]): string[] {
-  const textBlocks = resourceBlocks.filter((block) => block.type === "text");
-  return textBlocks.flatMap((block) =>
-    splitTextLines(stripRichText(block.text ?? "")),
-  );
-}
-
-function isSimilarTextForSummary(a: string, b: string): boolean {
-  const left = normalizeSummaryText(a);
-  const right = normalizeSummaryText(b);
-  if (!left || !right) return false;
-  return left === right || left.includes(right) || right.includes(left);
-}
-
-function normalizeSummaryText(text: string): string {
-  return text
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "")
-    .replace(/[^\p{L}\p{N}\s]/gu, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  return false;
 }
 
 function buildDiscussionPrompt(challengeBlocks: DayBlock[]): string {
@@ -1586,21 +1741,19 @@ function buildDiscussionPrompt(challengeBlocks: DayBlock[]): string {
 
 function getBlockPlainText(blocks: DayBlock[]): string {
   const textBlock = blocks.find((block) => block.type === "text");
-  if (!textBlock) return "";
-  return stripRichText(textBlock.text ?? "");
+  if (textBlock) return stripRichText(textBlock.text ?? "");
+
+  const stepsBlock = blocks.find((block) => block.type === "challenge_steps");
+  if (!stepsBlock) return "";
+
+  return (stepsBlock.steps ?? [])
+    .map((step) => stripRichText(step.text ?? ""))
+    .filter(Boolean)
+    .join(" ");
 }
 
 function hasVisibleTextContent(rawHtml: string): boolean {
   return stripRichText(rawHtml).trim().length > 0;
-}
-
-function splitTextLines(text: string): string[] {
-  const normalized = text
-    .split(/\n+/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-  if (normalized.length > 0) return normalized;
-  return text.trim() ? [text.trim()] : [];
 }
 
 function firstSentence(text: string): string {
@@ -1613,6 +1766,10 @@ function firstSentence(text: string): string {
 function limitText(text: string, maxLength: number): string {
   if (text.length <= maxLength) return text;
   return `${text.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+}
+
+function normalizeChallengeSnapshot(value: string): string {
+  return value.replace(/\r\n?/g, "\n").trim();
 }
 
 async function persistCloudState({
@@ -1653,5 +1810,31 @@ async function persistCloudState({
     onStatus("saved");
   } catch {
     onStatus("error");
+  }
+}
+
+async function persistDayCompletion({
+  labId,
+  dayNumber,
+  completed,
+}: {
+  labId: string;
+  dayNumber: number;
+  completed: boolean;
+}): Promise<boolean> {
+  try {
+    const response = await fetch("/api/progress/complete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        labId,
+        dayNumber,
+        completed,
+      }),
+    });
+
+    return response.ok;
+  } catch {
+    return false;
   }
 }

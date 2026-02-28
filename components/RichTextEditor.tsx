@@ -1,30 +1,15 @@
 "use client";
 
 import { sanitizeRichText } from "@/utils/richText";
-import { useEffect, useId, useRef, useState, type ClipboardEvent } from "react";
-
-const FONT_SIZE_TO_PX: Record<string, string> = {
-  "2": "14px",
-  "3": "16px",
-  "4": "20px",
-  "5": "30px",
-};
-
-const NAMED_FONT_SIZE_TO_PX: Record<string, string> = {
-  "x-small": "12px",
-  small: "14px",
-  medium: "16px",
-  large: "20px",
-  "x-large": "30px",
-  "xx-large": "36px",
-};
-
-const LINE_HEIGHT_OPTIONS = [
-  { label: "Compacto", value: "1.2" },
-  { label: "Normal", value: "1.5" },
-  { label: "Amplio", value: "1.8" },
-  { label: "Muy amplio", value: "2" },
-];
+import { mergeAttributes, type Editor } from "@tiptap/core";
+import Link from "@tiptap/extension-link";
+import Placeholder from "@tiptap/extension-placeholder";
+import TextAlign from "@tiptap/extension-text-align";
+import TextStyle from "@tiptap/extension-text-style";
+import Underline from "@tiptap/extension-underline";
+import { EditorContent, useEditor } from "@tiptap/react";
+import StarterKit from "@tiptap/starter-kit";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type RichTextEditorProps = {
   value: string;
@@ -34,6 +19,65 @@ type RichTextEditorProps = {
   compact?: boolean;
 };
 
+type EditorMode = "visual" | "html";
+type FontUnit = "px" | "rem" | "em";
+
+const FONT_SIZE_MIN = 1;
+const FONT_SIZE_MAX = 128;
+const LINE_HEIGHT_MIN = 0.5;
+const LINE_HEIGHT_MAX = 4;
+const DEFAULT_FONT_SIZE = "16";
+const DEFAULT_FONT_UNIT: FontUnit = "px";
+const DEFAULT_LINE_HEIGHT = "1.5";
+const DEFAULT_TEXT_COLOR = "#f0f2da";
+const DEFAULT_BG_COLOR = "#011963";
+
+const StyledText = TextStyle.extend({
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      color: {
+        default: null,
+        parseHTML: (element: HTMLElement) => element.style.color || null,
+      },
+      backgroundColor: {
+        default: null,
+        parseHTML: (element: HTMLElement) => element.style.backgroundColor || null,
+      },
+      fontSize: {
+        default: null,
+        parseHTML: (element: HTMLElement) => element.style.fontSize || null,
+      },
+      lineHeight: {
+        default: null,
+        parseHTML: (element: HTMLElement) => element.style.lineHeight || null,
+      },
+    };
+  },
+  renderHTML({ HTMLAttributes }) {
+    const attrs = HTMLAttributes as Record<string, unknown>;
+    const color = sanitizeCssValue(attrs.color);
+    const backgroundColor = sanitizeCssValue(attrs.backgroundColor);
+    const fontSize = sanitizeFontSize(attrs.fontSize);
+    const lineHeight = sanitizeLineHeight(attrs.lineHeight);
+
+    const styleParts: string[] = [];
+    if (color) styleParts.push(`color: ${color}`);
+    if (backgroundColor) styleParts.push(`background-color: ${backgroundColor}`);
+    if (fontSize) styleParts.push(`font-size: ${fontSize}`);
+    if (lineHeight) styleParts.push(`line-height: ${lineHeight}`);
+
+    return [
+      "span",
+      mergeAttributes(
+        filterNonTextStyleAttributes(attrs),
+        styleParts.length > 0 ? { style: styleParts.join("; ") } : {},
+      ),
+      0,
+    ];
+  },
+});
+
 export default function RichTextEditor({
   value,
   onChange,
@@ -41,222 +85,256 @@ export default function RichTextEditor({
   minHeightClassName = "min-h-[120px]",
   compact = false,
 }: RichTextEditorProps) {
-  const editorRef = useRef<HTMLDivElement | null>(null);
-  const savedRangeRef = useRef<Range | null>(null);
-  const colorInputId = useId();
-  const bgColorInputId = useId();
-  const [mode, setMode] = useState<"visual" | "html">("visual");
-  const [htmlDraft, setHtmlDraft] = useState(value);
+  const [mode, setMode] = useState<EditorMode>("visual");
+  const [htmlDraft, setHtmlDraft] = useState(sanitizeRichText(value));
+  const [fontSizeValue, setFontSizeValue] = useState(DEFAULT_FONT_SIZE);
+  const [fontSizeUnit, setFontSizeUnit] = useState<FontUnit>(DEFAULT_FONT_UNIT);
+  const [lineHeightValue, setLineHeightValue] = useState(DEFAULT_LINE_HEIGHT);
+  const [textColorValue, setTextColorValue] = useState(DEFAULT_TEXT_COLOR);
+  const [bgColorValue, setBgColorValue] = useState(DEFAULT_BG_COLOR);
+  const [selectionSize, setSelectionSize] = useState(0);
+  const savedSelectionRef = useRef<{ from: number; to: number } | null>(null);
+  const syncingExternalValueRef = useRef(false);
 
-  useEffect(() => {
-    const editor = editorRef.current;
-    if (!editor) return;
-    let normalized = false;
-    if (editor.innerHTML !== value) {
-      editor.innerHTML = value || "";
-      normalized = normalizeFontMarkup(editor);
-    } else {
-      normalized = normalizeFontMarkup(editor);
-    }
-
-    if (normalized && editor.innerHTML !== value) {
-      onChange(editor.innerHTML);
-    }
-  }, [onChange, value]);
-
-  useEffect(() => {
-    setHtmlDraft(value);
-  }, [value]);
-
-  const emitChange = () => {
-    const editor = editorRef.current;
-    if (!editor) return;
-    onChange(editor.innerHTML);
+  const rememberCurrentSelection = (targetEditor?: Editor | null) => {
+    const currentEditor = targetEditor ?? editor;
+    if (!currentEditor) return;
+    const { from, to } = currentEditor.state.selection;
+    savedSelectionRef.current = { from, to };
+    setSelectionSize(Math.max(0, to - from));
   };
 
-  const rememberSelection = () => {
-    const editor = editorRef.current;
-    if (!editor) return;
-    const selection = window.getSelection();
-    if (!selection || selection.rangeCount === 0) return;
-    if (
-      !isNodeInsideEditor(editor, selection.anchorNode) ||
-      !isNodeInsideEditor(editor, selection.focusNode)
-    ) {
-      return;
-    }
-    savedRangeRef.current = selection.getRangeAt(0).cloneRange();
-  };
-
-  const restoreSavedSelection = (selection: Selection) => {
-    const editor = editorRef.current;
-    if (!editor) return false;
-    const saved = savedRangeRef.current;
-    if (!saved) return false;
-
-    try {
-      if (
-        !isNodeInsideEditor(editor, saved.startContainer) ||
-        !isNodeInsideEditor(editor, saved.endContainer)
-      ) {
-        return false;
-      }
-      selection.removeAllRanges();
-      selection.addRange(saved);
-      return true;
-    } catch {
-      return false;
-    }
-  };
-
-  const ensureSelectionInsideEditor = () => {
-    const editor = editorRef.current;
+  const createSelectionChain = (focusEditor = true) => {
     if (!editor) return null;
-
-    editor.focus();
-    const selection = window.getSelection();
-    if (!selection) return null;
-
-    const hasSelectionInsideEditor =
-      selection.rangeCount > 0 &&
-      isNodeInsideEditor(editor, selection.anchorNode) &&
-      isNodeInsideEditor(editor, selection.focusNode);
-
-    if (
-      selection.rangeCount === 0 ||
-      (!hasSelectionInsideEditor && !restoreSavedSelection(selection))
-    ) {
-      const range = document.createRange();
-      range.selectNodeContents(editor);
-      range.collapse(false);
-      selection.removeAllRanges();
-      selection.addRange(range);
+    const savedSelection = savedSelectionRef.current;
+    const chain = focusEditor ? editor.chain().focus() : editor.chain();
+    if (savedSelection) {
+      chain.setTextSelection(savedSelection);
     }
-
-    rememberSelection();
-    return selection;
+    return chain;
   };
 
-  const applySpanStyle = (styles: Record<string, string>) => {
-    const editor = editorRef.current;
-    if (!editor) return false;
-    const selection = ensureSelectionInsideEditor();
-    if (!selection || selection.rangeCount === 0) return false;
-
-    const range = selection.getRangeAt(0);
-    const span = document.createElement("span");
-    for (const [key, value] of Object.entries(styles)) {
-      span.style.setProperty(key, value);
+  const restoreVisibleSelection = () => {
+    if (!editor) return;
+    const savedSelection = savedSelectionRef.current;
+    if (savedSelection) {
+      editor.chain().focus().setTextSelection(savedSelection).run();
+    } else {
+      editor.commands.focus();
     }
-
-    if (range.collapsed) {
-      span.textContent = "\u200b";
-      range.insertNode(span);
-
-      const nextRange = document.createRange();
-      nextRange.setStart(span.firstChild ?? span, 1);
-      nextRange.collapse(true);
-      selection.removeAllRanges();
-      selection.addRange(nextRange);
-      rememberSelection();
-      return true;
-    }
-
-    const fragment = range.extractContents();
-    span.appendChild(fragment);
-    range.insertNode(span);
-
-    const nextRange = document.createRange();
-    nextRange.selectNodeContents(span);
-    nextRange.collapse(false);
-    selection.removeAllRanges();
-    selection.addRange(nextRange);
-    rememberSelection();
-    return true;
+    rememberCurrentSelection();
   };
 
-  const runCommand = (command: string, commandValue?: string) => {
-    ensureSelectionInsideEditor();
-    document.execCommand("styleWithCSS", false, "true");
-    const ok = document.execCommand(command, false, commandValue);
-    emitChange();
-    rememberSelection();
-    return ok;
-  };
+  const editor = useEditor(
+    {
+      extensions: [
+        StarterKit.configure({
+          heading: {
+            levels: [1, 2, 3],
+          },
+        }),
+        StyledText,
+        Underline,
+        Link.configure({
+          openOnClick: false,
+          autolink: true,
+          HTMLAttributes: {
+            rel: "noopener noreferrer",
+            target: "_blank",
+          },
+        }),
+        Placeholder.configure({ placeholder }),
+        TextAlign.configure({
+          types: ["heading", "paragraph"],
+        }),
+      ],
+      editable: true,
+      immediatelyRender: false,
+      content: sanitizeRichText(value),
+      editorProps: {
+        attributes: {
+          class: `${minHeightClassName} w-full rounded border border-gray-700 bg-gray-950 p-3 text-gray-100 outline-none focus:border-[var(--ast-mint)] [&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-6 [&_li]:mb-1`,
+        },
+        transformPastedHTML: (html) => sanitizeRichText(html),
+      },
+      onUpdate: ({ editor: nextEditor }) => {
+        if (syncingExternalValueRef.current) return;
+        const safeHtml = sanitizeRichText(nextEditor.getHTML());
+        onChange(safeHtml);
+      },
+      onSelectionUpdate: ({ editor: nextEditor }) => {
+        rememberCurrentSelection(nextEditor);
+        syncControlsFromSelection(nextEditor, {
+          setFontSizeValue,
+          setFontSizeUnit,
+          setLineHeightValue,
+          setTextColorValue,
+          setBgColorValue,
+        });
+      },
+      onCreate: ({ editor: nextEditor }) => {
+        rememberCurrentSelection(nextEditor);
+        syncControlsFromSelection(nextEditor, {
+          setFontSizeValue,
+          setFontSizeUnit,
+          setLineHeightValue,
+          setTextColorValue,
+          setBgColorValue,
+        });
+      },
+    },
+    [placeholder, minHeightClassName],
+  );
 
-  const runListCommand = (ordered: boolean) => {
-    const command = ordered ? "insertOrderedList" : "insertUnorderedList";
-    const ok = runCommand(command);
-    if (!ok) {
-      const fallbackHtml = ordered
-        ? "<ol><li>\u200b</li></ol>"
-        : "<ul><li>\u200b</li></ul>";
-      runCommand("insertHTML", fallbackHtml);
-    }
-  };
+  useEffect(() => {
+    const safeValue = sanitizeRichText(value);
+    if (!editor) return;
 
-  const runColorCommand = (command: "foreColor" | "hiliteColor", color: string) => {
-    const ok = runCommand(command, color);
-    if (ok) return;
+    const current = sanitizeRichText(editor.getHTML());
+    if (normalizeHtml(current) === normalizeHtml(safeValue)) return;
 
-    if (command === "hiliteColor") {
-      const backOk = runCommand("backColor", color);
-      if (backOk) return;
-      applySpanStyle({ "background-color": color });
-      emitChange();
+    if (mode === "visual" && editor.isFocused) {
       return;
     }
 
-    applySpanStyle({ color });
-    emitChange();
-  };
+    syncingExternalValueRef.current = true;
+    editor.commands.setContent(safeValue, false);
+    syncingExternalValueRef.current = false;
+    setHtmlDraft(safeValue);
+  }, [editor, mode, value]);
 
-  const runFontSizeCommand = (sizeToken: string) => {
-    const editor = editorRef.current;
+  useEffect(() => {
     if (!editor) return;
-    const ok = runCommand("fontSize", sizeToken);
-    if (!ok) {
-      const px = FONT_SIZE_TO_PX[sizeToken] ?? "16px";
-      applySpanStyle({ "font-size": px });
-    }
-    normalizeFontMarkup(editor);
-    emitChange();
-  };
+    editor.setEditable(mode === "visual");
+  }, [editor, mode]);
 
-  const runLineHeightCommand = (lineHeight: string) => {
-    applySpanStyle({ "line-height": lineHeight });
-    emitChange();
-  };
+  const canEdit = useMemo(() => mode === "visual" && Boolean(editor), [editor, mode]);
 
-  const applyHtmlDraft = () => {
-    const sanitized = sanitizeRichText(htmlDraft);
-    setHtmlDraft(sanitized);
-    onChange(sanitized);
-  };
-
-  const switchMode = (nextMode: "visual" | "html") => {
-    if (mode === nextMode) return;
+  const switchMode = (nextMode: EditorMode) => {
+    if (nextMode === mode) return;
     if (mode === "html") {
       applyHtmlDraft();
+    } else if (editor) {
+      setHtmlDraft(sanitizeRichText(editor.getHTML()));
     }
     setMode(nextMode);
   };
 
-  const handleVisualPaste = (event: ClipboardEvent<HTMLDivElement>) => {
-    const htmlFromClipboard = event.clipboardData.getData("text/html").trim();
-    const plainText = event.clipboardData.getData("text/plain");
-    const decodedPlainText = decodeBasicHtmlEntities(plainText);
+  const applyHtmlDraft = () => {
+    const safeHtml = sanitizeRichText(htmlDraft);
+    setHtmlDraft(safeHtml);
+    onChange(safeHtml);
+    if (!editor) return;
+    syncingExternalValueRef.current = true;
+    editor.commands.setContent(safeHtml, false);
+    syncingExternalValueRef.current = false;
+    syncControlsFromSelection(editor, {
+      setFontSizeValue,
+      setFontSizeUnit,
+      setLineHeightValue,
+      setTextColorValue,
+      setBgColorValue,
+    });
+  };
 
-    const htmlCandidate =
-      htmlFromClipboard ||
-      (looksLikeHtmlSnippet(decodedPlainText) ? decodedPlainText : "");
+  const applyFontSize = () => {
+    if (!editor || !canEdit) return false;
+    return applyFontSizeValue(fontSizeValue, fontSizeUnit, true);
+  };
 
-    if (!htmlCandidate) return;
+  const applyFontSizeValue = (
+    rawValue: string,
+    unit: FontUnit,
+    focusEditor: boolean,
+  ) => {
+    if (!editor || !canEdit) return;
+    const numericValue = parseNumericInput(rawValue);
+    if (numericValue === null) return false;
 
-    event.preventDefault();
-    const safeHtml = sanitizeRichText(htmlCandidate);
-    if (!safeHtml) return;
-    runCommand("insertHTML", safeHtml);
+    const clamped = Math.min(FONT_SIZE_MAX, Math.max(FONT_SIZE_MIN, numericValue));
+    const next = `${trimNumeric(clamped)}${unit}`;
+    const chain = createSelectionChain(focusEditor);
+    chain?.setMark("textStyle", { fontSize: next }).run();
+    setFontSizeValue(trimNumeric(clamped));
+    rememberCurrentSelection();
+    return true;
+  };
+
+  const clearFontSize = () => {
+    if (!editor || !canEdit) return;
+    const chain = createSelectionChain();
+    chain?.setMark("textStyle", { fontSize: null }).run();
+    rememberCurrentSelection();
+  };
+
+  const applyLineHeight = () => {
+    if (!editor || !canEdit) return false;
+    return applyLineHeightValue(lineHeightValue, true);
+  };
+
+  const applyLineHeightValue = (rawValue: string, focusEditor: boolean) => {
+    if (!editor || !canEdit) return false;
+    const numericValue = parseNumericInput(rawValue);
+    if (numericValue === null || numericValue <= 0) return false;
+    const clamped = Math.min(LINE_HEIGHT_MAX, Math.max(LINE_HEIGHT_MIN, numericValue));
+    const chain = createSelectionChain(focusEditor);
+    chain?.setMark("textStyle", { lineHeight: trimNumeric(clamped) }).run();
+    setLineHeightValue(trimNumeric(clamped));
+    rememberCurrentSelection();
+    return true;
+  };
+
+  const applyTextColor = (nextColor: string) => {
+    setTextColorValue(nextColor);
+    if (!editor || !canEdit) return;
+    const chain = createSelectionChain();
+    chain?.setMark("textStyle", { color: nextColor }).run();
+    rememberCurrentSelection();
+  };
+
+  const clearTextColor = () => {
+    if (!editor || !canEdit) return;
+    const chain = createSelectionChain();
+    chain?.setMark("textStyle", { color: null }).run();
+    rememberCurrentSelection();
+  };
+
+  const applyBackgroundColor = (nextColor: string) => {
+    setBgColorValue(nextColor);
+    if (!editor || !canEdit) return;
+    const chain = createSelectionChain();
+    chain?.setMark("textStyle", { backgroundColor: nextColor }).run();
+    rememberCurrentSelection();
+  };
+
+  const clearBackgroundColor = () => {
+    if (!editor || !canEdit) return;
+    const chain = createSelectionChain();
+    chain?.setMark("textStyle", { backgroundColor: null }).run();
+    rememberCurrentSelection();
+  };
+
+  const toggleLink = () => {
+    if (!editor || !canEdit || typeof window === "undefined") return;
+
+    const previousUrl = (editor.getAttributes("link").href as string | undefined) ?? "";
+    const urlInput = window.prompt("URL del enlace", previousUrl || "https://");
+    if (urlInput === null) return;
+
+    const nextUrl = urlInput.trim();
+    if (!nextUrl) {
+      const chain = createSelectionChain();
+      chain?.extendMarkRange("link").unsetLink().run();
+      rememberCurrentSelection();
+      return;
+    }
+
+    const chain = createSelectionChain();
+    chain
+      ?.extendMarkRange("link")
+      .setLink({ href: nextUrl, target: "_blank", rel: "noopener noreferrer" })
+      .run();
+    rememberCurrentSelection();
   };
 
   return (
@@ -266,12 +344,14 @@ export default function RichTextEditor({
           label="Visual"
           title="Editor visual"
           compact={compact}
+          active={mode === "visual"}
           onClick={() => switchMode("visual")}
         />
         <ToolbarButton
           label="HTML"
           title="Editar HTML"
           compact={compact}
+          active={mode === "html"}
           onClick={() => switchMode("html")}
         />
       </div>
@@ -285,140 +365,249 @@ export default function RichTextEditor({
           label="B"
           title="Negrita"
           compact={compact}
-          onClick={() => runCommand("bold")}
+          active={Boolean(editor?.isActive("bold"))}
+          onClick={() => editor?.chain().focus().toggleBold().run()}
         />
         <ToolbarButton
           label="I"
           title="Itálica"
           compact={compact}
-          onClick={() => runCommand("italic")}
+          active={Boolean(editor?.isActive("italic"))}
+          onClick={() => editor?.chain().focus().toggleItalic().run()}
         />
         <ToolbarButton
           label="U"
           title="Subrayado"
           compact={compact}
-          onClick={() => runCommand("underline")}
+          active={Boolean(editor?.isActive("underline"))}
+          onClick={() => editor?.chain().focus().toggleUnderline().run()}
         />
         <ToolbarButton
           label="S"
           title="Tachado"
           compact={compact}
-          onClick={() => runCommand("strikeThrough")}
+          active={Boolean(editor?.isActive("strike"))}
+          onClick={() => editor?.chain().focus().toggleStrike().run()}
         />
         <ToolbarButton
           label={compact ? "•" : "• Lista"}
           title="Lista con viñetas"
           compact={compact}
-          onClick={() => runListCommand(false)}
+          active={Boolean(editor?.isActive("bulletList"))}
+          onClick={() => editor?.chain().focus().toggleBulletList().run()}
         />
         <ToolbarButton
           label={compact ? "1." : "1. Lista"}
           title="Lista numerada"
           compact={compact}
-          onClick={() => runListCommand(true)}
+          active={Boolean(editor?.isActive("orderedList"))}
+          onClick={() => editor?.chain().focus().toggleOrderedList().run()}
+        />
+        <ToolbarButton
+          label={compact ? "↔" : "Link"}
+          title="Insertar o editar enlace"
+          compact={compact}
+          active={Boolean(editor?.isActive("link"))}
+          onClick={toggleLink}
+        />
+        <ToolbarButton
+          label={compact ? "←" : "Izq"}
+          title="Alinear izquierda"
+          compact={compact}
+          active={Boolean(editor?.isActive({ textAlign: "left" }))}
+          onClick={() => editor?.chain().focus().setTextAlign("left").run()}
+        />
+        <ToolbarButton
+          label={compact ? "↔" : "Centro"}
+          title="Alinear centro"
+          compact={compact}
+          active={Boolean(editor?.isActive({ textAlign: "center" }))}
+          onClick={() => editor?.chain().focus().setTextAlign("center").run()}
+        />
+        <ToolbarButton
+          label={compact ? "→" : "Der"}
+          title="Alinear derecha"
+          compact={compact}
+          active={Boolean(editor?.isActive({ textAlign: "right" }))}
+          onClick={() => editor?.chain().focus().setTextAlign("right").run()}
+        />
+        <ToolbarButton
+          label={compact ? "↔↔" : "Just"}
+          title="Justificar"
+          compact={compact}
+          active={Boolean(editor?.isActive({ textAlign: "justify" }))}
+          onClick={() => editor?.chain().focus().setTextAlign("justify").run()}
         />
         <ToolbarButton
           label={compact ? "↺" : "Limpiar"}
           title="Limpiar formato"
           compact={compact}
-          onClick={() => runCommand("removeFormat")}
+          onClick={() =>
+            editor
+              ?.chain()
+              .focus()
+              .unsetAllMarks()
+              .clearNodes()
+              .run()
+          }
         />
 
-        <select
-          defaultValue="3"
-          onMouseDown={rememberSelection}
-          onFocus={rememberSelection}
-          onChange={(e) => runFontSizeCommand(e.target.value)}
-          className={`rounded border border-gray-700 bg-black text-gray-200 ${
-            compact ? "px-1.5 py-1 text-[11px]" : "px-2 py-1 text-xs"
-          }`}
-          aria-label="Tamaño de fuente"
-        >
-          <option value="2">{compact ? "S" : "Texto pequeño"}</option>
-          <option value="3">{compact ? "M" : "Texto normal"}</option>
-          <option value="4">{compact ? "L" : "Texto grande"}</option>
-          <option value="5">Título</option>
-        </select>
+        <div className="flex items-center gap-1 rounded border border-gray-700 bg-black/70 px-1.5 py-1">
+          <span className={compact ? "text-[10px] text-gray-300" : "text-[11px] text-gray-300"}>
+            Font
+          </span>
+          <input
+            type="number"
+            min={FONT_SIZE_MIN}
+            max={FONT_SIZE_MAX}
+            step="0.1"
+            inputMode="decimal"
+            value={fontSizeValue}
+            onMouseDown={() => rememberCurrentSelection()}
+            onFocus={() => rememberCurrentSelection()}
+            onChange={(event) => {
+              const nextValue = event.target.value;
+              setFontSizeValue(nextValue);
+              applyFontSizeValue(nextValue, fontSizeUnit, false);
+            }}
+            onBlur={() => {
+              applyFontSizeValue(fontSizeValue, fontSizeUnit, false);
+              restoreVisibleSelection();
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                applyFontSize();
+              }
+            }}
+            className={`w-16 rounded border border-gray-700 bg-black px-1.5 text-gray-200 ${
+              compact ? "py-1 text-[11px]" : "py-1 text-xs"
+            }`}
+            aria-label="Tamaño de fuente numérico"
+          />
+          <select
+            value={fontSizeUnit}
+            onMouseDown={() => rememberCurrentSelection()}
+            onFocus={() => rememberCurrentSelection()}
+            onChange={(event) => {
+              const nextUnit = event.target.value as FontUnit;
+              setFontSizeUnit(nextUnit);
+              applyFontSizeValue(fontSizeValue, nextUnit, false);
+            }}
+            onBlur={() => restoreVisibleSelection()}
+            className={`rounded border border-gray-700 bg-black px-1.5 text-gray-200 ${
+              compact ? "py-1 text-[11px]" : "py-1 text-xs"
+            }`}
+            aria-label="Unidad de tamaño de fuente"
+          >
+            <option value="px">px</option>
+            <option value="rem">rem</option>
+            <option value="em">em</option>
+          </select>
+          <ToolbarButton label="×" title="Quitar tamaño" compact={compact} onClick={clearFontSize} />
+        </div>
 
-        <select
-          defaultValue="1.5"
-          onMouseDown={rememberSelection}
-          onFocus={rememberSelection}
-          onChange={(e) => runLineHeightCommand(e.target.value)}
-          className={`rounded border border-gray-700 bg-black text-gray-200 ${
-            compact ? "px-1.5 py-1 text-[11px]" : "px-2 py-1 text-xs"
-          }`}
-          aria-label="Interlineado"
-        >
-          {LINE_HEIGHT_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>
-              {compact ? option.value : `Interlineado ${option.label}`}
-            </option>
-          ))}
-        </select>
+        <div className="flex items-center gap-1 rounded border border-gray-700 bg-black/70 px-1.5 py-1">
+          <span className={compact ? "text-[10px] text-gray-300" : "text-[11px] text-gray-300"}>
+            LH
+          </span>
+          <input
+            type="number"
+            min={LINE_HEIGHT_MIN}
+            max={LINE_HEIGHT_MAX}
+            step="0.05"
+            inputMode="decimal"
+            value={lineHeightValue}
+            onMouseDown={() => rememberCurrentSelection()}
+            onFocus={() => rememberCurrentSelection()}
+            onChange={(event) => {
+              const nextValue = event.target.value;
+              setLineHeightValue(nextValue);
+              applyLineHeightValue(nextValue, false);
+            }}
+            onBlur={() => {
+              applyLineHeightValue(lineHeightValue, false);
+              restoreVisibleSelection();
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                applyLineHeight();
+              }
+            }}
+            className={`w-14 rounded border border-gray-700 bg-black px-1.5 text-gray-200 ${
+              compact ? "py-1 text-[11px]" : "py-1 text-xs"
+            }`}
+            aria-label="Interlineado"
+          />
+        </div>
 
         <label
-          htmlFor={colorInputId}
           className={`inline-flex items-center gap-1 rounded border border-gray-700 bg-black text-gray-300 ${
             compact ? "px-1.5 py-1 text-[11px]" : "px-2 py-1 text-xs"
           }`}
           title="Color de texto"
         >
-          {compact ? "A" : "Color"}
+          A
           <input
-            id={colorInputId}
             type="color"
-            defaultValue="#f0f2da"
-            onMouseDown={rememberSelection}
-            onFocus={rememberSelection}
-            onChange={(e) => runColorCommand("foreColor", e.target.value)}
+            value={textColorValue}
+            onMouseDown={() => rememberCurrentSelection()}
+            onFocus={() => rememberCurrentSelection()}
+            onChange={(event) => applyTextColor(event.target.value)}
+            onBlur={() => restoreVisibleSelection()}
             className="h-5 w-5 cursor-pointer rounded border border-gray-700 bg-transparent p-0"
           />
         </label>
-
+        <ToolbarButton
+          label={compact ? "A×" : "Sin color"}
+          title="Quitar color de texto"
+          compact={compact}
+          onClick={clearTextColor}
+        />
         <label
-          htmlFor={bgColorInputId}
           className={`inline-flex items-center gap-1 rounded border border-gray-700 bg-black text-gray-300 ${
             compact ? "px-1.5 py-1 text-[11px]" : "px-2 py-1 text-xs"
           }`}
           title="Color de fondo"
         >
-          {compact ? "Bg" : "Fondo"}
+          Bg
           <input
-            id={bgColorInputId}
             type="color"
-            defaultValue="#011963"
-            onMouseDown={rememberSelection}
-            onFocus={rememberSelection}
-            onChange={(e) => runColorCommand("hiliteColor", e.target.value)}
+            value={bgColorValue}
+            onMouseDown={() => rememberCurrentSelection()}
+            onFocus={() => rememberCurrentSelection()}
+            onChange={(event) => applyBackgroundColor(event.target.value)}
+            onBlur={() => restoreVisibleSelection()}
             className="h-5 w-5 cursor-pointer rounded border border-gray-700 bg-transparent p-0"
           />
         </label>
+        <ToolbarButton
+          label={compact ? "Bg×" : "Sin highlight"}
+          title="Quitar color de fondo"
+          compact={compact}
+          onClick={clearBackgroundColor}
+        />
+        <ToolbarButton
+          label={compact ? "Sel" : "Re-seleccionar"}
+          title="Volver a mostrar selección activa"
+          compact={compact}
+          onClick={restoreVisibleSelection}
+        />
+        <span className="ml-1 text-[10px] text-gray-400">
+          {selectionSize > 0
+            ? `Rango activo: ${selectionSize} caracteres`
+            : "Sin selección: aplica en el cursor"}
+        </span>
       </div>
 
       {mode === "visual" ? (
-        <div
-          ref={editorRef}
-          contentEditable
-          suppressContentEditableWarning
-          role="textbox"
-          aria-label={placeholder}
-          data-placeholder={placeholder}
-          onInput={() => {
-            emitChange();
-            rememberSelection();
-          }}
-          onMouseUp={rememberSelection}
-          onKeyUp={rememberSelection}
-          onBlur={rememberSelection}
-          onPaste={handleVisualPaste}
-          className={`${minHeightClassName} w-full rounded border border-gray-700 bg-gray-950 p-3 text-gray-100 outline-none focus:border-[var(--ast-mint)] [&_h1]:my-0 [&_h2]:my-0 [&_h3]:my-0 [&_h4]:my-0 [&_h5]:my-0 [&_h6]:my-0 [&_h1]:text-[1em] [&_h2]:text-[1em] [&_h3]:text-[1em] [&_h4]:text-[1em] [&_h5]:text-[1em] [&_h6]:text-[1em] [&_h1]:font-inherit [&_h2]:font-inherit [&_h3]:font-inherit [&_h4]:font-inherit [&_h5]:font-inherit [&_h6]:font-inherit [&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-6 [&_li]:mb-1 [&:empty:before]:text-gray-500 [&:empty:before]:content-[attr(data-placeholder)]`}
-        />
+        <EditorContent editor={editor} />
       ) : (
         <div className="space-y-2">
           <textarea
             value={htmlDraft}
-            onChange={(e) => setHtmlDraft(e.target.value)}
+            onChange={(event) => setHtmlDraft(event.target.value)}
             onBlur={applyHtmlDraft}
             placeholder="Pega aquí tu HTML..."
             className={`${minHeightClassName} w-full rounded border border-gray-700 bg-gray-950 p-3 font-mono text-sm text-gray-100 outline-none focus:border-[var(--ast-mint)]`}
@@ -441,60 +630,17 @@ export default function RichTextEditor({
   );
 }
 
-function isNodeInsideEditor(editor: HTMLElement, node: Node | null): boolean {
-  if (!node) return false;
-  return node === editor || editor.contains(node);
-}
-
-function normalizeFontMarkup(root: HTMLElement): boolean {
-  let changed = false;
-
-  const fontElements = Array.from(root.querySelectorAll("font"));
-  for (const font of fontElements) {
-    const sizeToken = (font.getAttribute("size") ?? "").trim();
-    const mappedSize =
-      FONT_SIZE_TO_PX[sizeToken] ||
-      NAMED_FONT_SIZE_TO_PX[(font.style.fontSize || "").trim().toLowerCase()] ||
-      "";
-
-    const span = document.createElement("span");
-    if (mappedSize) {
-      span.style.fontSize = mappedSize;
-    }
-    const color = (font.getAttribute("color") ?? "").trim();
-    if (color) {
-      span.style.color = color;
-    }
-
-    while (font.firstChild) {
-      span.appendChild(font.firstChild);
-    }
-    font.replaceWith(span);
-    changed = true;
-  }
-
-  const styledElements = Array.from(root.querySelectorAll<HTMLElement>("[style]"));
-  for (const element of styledElements) {
-    const rawSize = element.style.fontSize?.trim().toLowerCase();
-    if (!rawSize) continue;
-    const mappedSize = NAMED_FONT_SIZE_TO_PX[rawSize];
-    if (!mappedSize) continue;
-    element.style.fontSize = mappedSize;
-    changed = true;
-  }
-
-  return changed;
-}
-
 function ToolbarButton({
   label,
   title,
   compact = false,
+  active = false,
   onClick,
 }: {
   label: string;
   title?: string;
   compact?: boolean;
+  active?: boolean;
   onClick: () => void;
 }) {
   return (
@@ -505,24 +651,145 @@ function ToolbarButton({
       }}
       onClick={onClick}
       title={title}
-      className={`rounded border border-gray-700 bg-black text-gray-200 transition hover:border-gray-500 hover:bg-gray-900 ${
-        compact ? "px-1.5 py-1 text-[11px]" : "px-2 py-1 text-xs"
-      }`}
+      className={`rounded border transition ${
+        active
+          ? "border-[var(--ast-mint)]/70 bg-[var(--ast-emerald)]/20 text-[var(--ast-mint)]"
+          : "border-gray-700 bg-black text-gray-200 hover:border-gray-500 hover:bg-gray-900"
+      } ${compact ? "px-1.5 py-1 text-[11px]" : "px-2 py-1 text-xs"}`}
     >
       {label}
     </button>
   );
 }
 
-function looksLikeHtmlSnippet(value: string): boolean {
-  return /<\s*\/?\s*[a-z][^>]*>/i.test(value);
+function syncControlsFromSelection(
+  editor: Editor,
+  actions: {
+    setFontSizeValue: (value: string) => void;
+    setFontSizeUnit: (unit: FontUnit) => void;
+    setLineHeightValue: (value: string) => void;
+    setTextColorValue: (value: string) => void;
+    setBgColorValue: (value: string) => void;
+  },
+) {
+  const attrs = editor.getAttributes("textStyle") as Record<string, unknown>;
+
+  const parsedFont = parseFontSize(attrs.fontSize);
+  if (parsedFont) {
+    actions.setFontSizeValue(parsedFont.value);
+    actions.setFontSizeUnit(parsedFont.unit);
+  } else {
+    actions.setFontSizeValue(DEFAULT_FONT_SIZE);
+    actions.setFontSizeUnit(DEFAULT_FONT_UNIT);
+  }
+
+  const lineHeight = sanitizeLineHeight(attrs.lineHeight);
+  actions.setLineHeightValue(lineHeight ?? DEFAULT_LINE_HEIGHT);
+
+  const textColor = toHexColor(attrs.color) ?? DEFAULT_TEXT_COLOR;
+  actions.setTextColorValue(textColor);
+
+  const bgColor = toHexColor(attrs.backgroundColor) ?? DEFAULT_BG_COLOR;
+  actions.setBgColorValue(bgColor);
 }
 
-function decodeBasicHtmlEntities(value: string): string {
-  return value
-    .replace(/&lt;/gi, "<")
-    .replace(/&gt;/gi, ">")
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;/gi, "'")
-    .replace(/&amp;/gi, "&");
+function parseFontSize(value: unknown): { value: string; unit: FontUnit } | null {
+  if (typeof value !== "string") return null;
+  const match = value.trim().toLowerCase().match(/^(\d+(?:\.\d+)?)(px|rem|em)$/);
+  if (!match) return null;
+  return { value: trimNumeric(Number(match[1])), unit: match[2] as FontUnit };
+}
+
+function trimNumeric(value: number): string {
+  return Number.isInteger(value) ? String(value) : String(Number(value.toFixed(2)));
+}
+
+function parseNumericInput(raw: string): number | null {
+  const normalized = raw.trim().replace(",", ".");
+  if (!normalized) return null;
+  if (!/^-?\d+(\.\d+)?$/.test(normalized)) return null;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function sanitizeCssValue(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (/url\s*\(/i.test(trimmed)) return null;
+  if (/expression\s*\(/i.test(trimmed)) return null;
+  if (/javascript:/i.test(trimmed)) return null;
+  return trimmed;
+}
+
+function sanitizeFontSize(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim().toLowerCase();
+  return /^\d+(?:\.\d+)?(px|rem|em)$/.test(trimmed) ? trimmed : null;
+}
+
+function sanitizeLineHeight(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim().toLowerCase();
+  if (trimmed === "normal") return "normal";
+  if (/^\d+(?:\.\d+)?$/.test(trimmed)) return trimmed;
+  if (/^\d+(?:\.\d+)?(px|rem|em)$/.test(trimmed)) return trimmed;
+  return null;
+}
+
+function filterNonTextStyleAttributes(
+  attrs: Record<string, unknown>,
+): Record<string, string> {
+  const output: Record<string, string> = {};
+  for (const [key, value] of Object.entries(attrs)) {
+    if (
+      key === "color" ||
+      key === "backgroundColor" ||
+      key === "fontSize" ||
+      key === "lineHeight"
+    ) {
+      continue;
+    }
+    if (typeof value === "string") {
+      output[key] = value;
+    }
+  }
+  return output;
+}
+
+function toHexColor(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  const hex = normalizeHex(trimmed);
+  if (hex) return hex;
+
+  const rgbMatch = trimmed.match(
+    /^rgba?\(\s*([01]?\d?\d|2[0-4]\d|25[0-5])\s*,\s*([01]?\d?\d|2[0-4]\d|25[0-5])\s*,\s*([01]?\d?\d|2[0-4]\d|25[0-5])(?:\s*,\s*(0|0?\.\d+|1(?:\.0+)?))?\s*\)$/i,
+  );
+  if (!rgbMatch) return null;
+
+  const r = Number(rgbMatch[1]);
+  const g = Number(rgbMatch[2]);
+  const b = Number(rgbMatch[3]);
+  return `#${toHex2(r)}${toHex2(g)}${toHex2(b)}`;
+}
+
+function normalizeHex(value: string): string | null {
+  const raw = value.trim().toLowerCase();
+  if (!/^#[0-9a-f]{3}([0-9a-f]{3})?$/.test(raw)) return null;
+  if (raw.length === 7) return raw;
+  const r = raw[1];
+  const g = raw[2];
+  const b = raw[3];
+  return `#${r}${r}${g}${g}${b}${b}`;
+}
+
+function toHex2(value: number): string {
+  return value.toString(16).padStart(2, "0");
+}
+
+function normalizeHtml(raw: string): string {
+  return raw.replace(/\s+/g, " ").trim();
 }

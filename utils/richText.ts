@@ -77,7 +77,7 @@ export function normalizeRichTextInput(raw: string): string {
 
   const looksLikeHtml = /<[^>]+>/.test(trimmed);
   if (looksLikeHtml) {
-    return sanitizeRichText(trimmed);
+    return sanitizeRichText(normalizeHtmlLineBreaks(trimmed));
   }
 
   const paragraphs = trimmed
@@ -87,6 +87,16 @@ export function normalizeRichTextInput(raw: string): string {
     .map((paragraph) => `<p>${escapeHtml(paragraph).replace(/\n/g, "<br />")}</p>`);
 
   return sanitizeRichText(paragraphs.join(""));
+}
+
+function normalizeHtmlLineBreaks(rawHtml: string): string {
+  const normalized = rawHtml.replace(/\r\n?/g, "\n");
+
+  // Convert plain newlines inside text nodes to <br /> so they remain visible in render.
+  return normalized.replace(/>([^<]+)</g, (_match, textChunk: string) => {
+    if (!textChunk.includes("\n")) return `>${textChunk}<`;
+    return `>${textChunk.replace(/\n/g, "<br />")}<`;
+  });
 }
 
 export function hasRichTextContent(raw: string): boolean {

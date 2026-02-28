@@ -3,6 +3,7 @@
 import { createClient } from "@/utils/supabase/client";
 import {
   createBlock,
+  createChallengeStep,
   createChecklistItem,
   createQuizQuestion,
   extractYouTubeVideoId,
@@ -12,14 +13,17 @@ import {
   getDefaultDayBlockGroup,
   type DayBlock,
   type DayChecklistItem,
+  type DayChallengeStep,
   type DayQuizQuestion,
   type DayBlockGroup,
   type DayBlockRole,
+  type DayResourceSlot,
   type DayBlockType,
 } from "@/utils/dayBlocks";
 import {
   hasRichTextContent,
   normalizeRichTextInput,
+  sanitizeRichText,
 } from "@/utils/richText";
 import {
   isMissingColumnError,
@@ -184,6 +188,8 @@ export default function AdminPanel({
   const [description, setDescription] = useState("");
   const [createLabSlug, setCreateLabSlug] = useState("");
   const [createLabCoverUrl, setCreateLabCoverUrl] = useState("");
+  const [isUploadingCreateCover, setIsUploadingCreateCover] = useState(false);
+  const [uploadingLabCoverId, setUploadingLabCoverId] = useState<string | null>(null);
   const [createLabAccentColor, setCreateLabAccentColor] = useState("#0A56C6");
   const [labelsInput, setLabelsInput] = useState("");
   const [labLabelDrafts, setLabLabelDrafts] = useState<Record<string, string>>({});
@@ -1221,6 +1227,54 @@ export default function AdminPanel({
     commitBlocks((prev) => [...prev, nextBlock]);
   };
 
+  const consolidateChallengeIntoGuidedBlock = () => {
+    let nextFocusedId: string | null = null;
+    let consolidated = false;
+
+    commitBlocks((prev) => {
+      const challengeTextEntries = prev
+        .map((block, index) => ({ block, index }))
+        .filter(({ block }) => {
+          const group = block.group ?? getDefaultDayBlockGroup(block.type);
+          return group === "challenge" && block.type === "text";
+        });
+
+      if (challengeTextEntries.length === 0) return prev;
+
+      const guided = createBlock("challenge_steps");
+      if (guided.type !== "challenge_steps") return prev;
+
+      guided.group = "challenge";
+      guided.role = "support";
+      guided.title = "Reto del día";
+      guided.steps = challengeTextEntries
+        .map(({ block }, index) =>
+          createChallengeStep(`Paso ${index + 1}`, block.text ?? ""),
+        )
+        .filter((step) => hasRichTextContent(step.text));
+
+      if ((guided.steps?.length ?? 0) === 0) {
+        guided.steps = [createChallengeStep("Paso 1", "")];
+      }
+
+      const removeIds = new Set(challengeTextEntries.map(({ block }) => block.id));
+      const insertIndex = challengeTextEntries[0]?.index ?? prev.length;
+      const next = prev.filter((block) => !removeIds.has(block.id));
+      next.splice(insertIndex, 0, guided);
+
+      nextFocusedId = guided.id;
+      consolidated = true;
+      return next;
+    });
+
+    if (consolidated && nextFocusedId) {
+      setFocusedBlockId(nextFocusedId);
+      setDayMsg("Reto consolidado en un solo bloque guiado.");
+    } else {
+      setDayMsg("No hay bloques de texto en Reto del día para consolidar.");
+    }
+  };
+
   const applyTemplate = () => {
     const template = dayBlockTemplates.find((item) => item.id === selectedTemplateId);
     if (!template) return;
@@ -1248,7 +1302,12 @@ export default function AdminPanel({
 
   const uploadFileForBlock = async (block: DayBlock, file: File) => {
     if (!selectedLab) return;
-    if (block.type === "text" || block.type === "checklist" || block.type === "quiz") {
+    if (
+      block.type === "text" ||
+      block.type === "checklist" ||
+      block.type === "quiz" ||
+      block.type === "challenge_steps"
+    ) {
       return;
     }
 
@@ -1279,6 +1338,125 @@ export default function AdminPanel({
     updateBlock(block.id, { url: data.publicUrl });
     setDayMsg("Archivo subido correctamente");
     setUploadingBlockId(null);
+  };
+
+  const uploadLabCoverFile = async (
+    file: File,
+    options?: { labId?: string },
+  ): Promise<string | null> => {
+    if (!file.type.startsWith("image/")) {
+      setMsg("Selecciona una imagen valida (PNG, JPG, WEBP o AVIF).");
+      return null;
+    }
+
+    const MAX_COVER_FILE_BYTES = 8 * 1024 * 1024;
+    if (file.size > MAX_COVER_FILE_BYTES) {
+      setMsg("La portada excede 8MB. Usa una imagen mas ligera.");
+      return null;
+    }
+
+    const cleanFileName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+    const extension = cleanFileName.includes(".")
+      ? cleanFileName.split(".").pop()?.toLowerCase()
+      : "";
+    const uuid =
+      globalThis.crypto?.randomUUID?.() ??
+      `${options?.labId ?? "draft"}_${Date.now()}_${cleanFileName}`;
+    const uniqueName = `${uuid}${extension ? `.${extension}` : ""}`;
+    const labScope = options?.labId ? `labs/${options.labId}` : "labs/drafts";
+    const path = `${labScope}/cover/${uniqueName}`;
+
+    const { error } = await supabase.storage
+      .from("lab-media")
+      .upload(path, file, { upsert: false, cacheControl: "3600" });
+
+    if (error) {
+      setMsg("Error al subir portada: " + error.message);
+      return null;
+    }
+
+    const { data } = supabase.storage.from("lab-media").getPublicUrl(path);
+    return data.publicUrl;
+  };
+
+  const handleCreateLabCoverUpload = async (file: File) => {
+    setIsUploadingCreateCover(true);
+    setMsg("Subiendo portada...");
+    const publicUrl = await uploadLabCoverFile(file);
+    if (publicUrl) {
+      setCreateLabCoverUrl(publicUrl);
+      setMsg("Portada lista. Se aplicara al crear el lab.");
+    }
+    setIsUploadingCreateCover(false);
+  };
+
+  const handleEditLabCoverUpload = async (lab: AdminLab, file: File) => {
+    setUploadingLabCoverId(lab.id);
+    setMsg(`Subiendo portada para "${lab.title}"...`);
+    const publicUrl = await uploadLabCoverFile(file, { labId: lab.id });
+    if (publicUrl) {
+      setLabMetaDrafts((prev) => ({
+        ...prev,
+        [lab.id]: {
+          ...(prev[lab.id] ?? {
+            title: lab.title,
+            description: lab.description ?? "",
+            slug: lab.slug ?? "",
+            coverImageUrl: lab.cover_image_url ?? "",
+            accentColor: lab.accent_color ?? "#0A56C6",
+          }),
+          coverImageUrl: publicUrl,
+        },
+      }));
+      setMsg("Portada subida. Guarda los cambios del lab para aplicarla.");
+    }
+    setUploadingLabCoverId(null);
+  };
+
+  const handleQuickLabCoverUpload = async (lab: AdminLab, file: File) => {
+    setUploadingLabCoverId(lab.id);
+    setMsg(`Subiendo portada para "${lab.title}"...`);
+    const publicUrl = await uploadLabCoverFile(file, { labId: lab.id });
+    if (!publicUrl) {
+      setUploadingLabCoverId(null);
+      return;
+    }
+
+    const { error } = await supabase
+      .from("labs")
+      .update({ cover_image_url: publicUrl })
+      .eq("id", lab.id);
+
+    if (error) {
+      if (isMissingLabMetaColumnsError(error.message)) {
+        setMsg("Faltan columnas visuales. Ejecuta docs/supabase-lab-meta.sql");
+      } else {
+        setMsg("Error al guardar portada: " + error.message);
+      }
+      setUploadingLabCoverId(null);
+      return;
+    }
+
+    setLabs((prev) =>
+      prev.map((item) =>
+        item.id === lab.id ? { ...item, cover_image_url: publicUrl } : item,
+      ),
+    );
+    setLabMetaDrafts((prev) => ({
+      ...prev,
+      [lab.id]: {
+        ...(prev[lab.id] ?? {
+          title: lab.title,
+          description: lab.description ?? "",
+          slug: lab.slug ?? "",
+          coverImageUrl: lab.cover_image_url ?? "",
+          accentColor: lab.accent_color ?? "#0A56C6",
+        }),
+        coverImageUrl: publicUrl,
+      },
+    }));
+    setMsg(`Portada actualizada para "${lab.title}".`);
+    setUploadingLabCoverId(null);
   };
 
   const updateBlock = (id: string, patch: Partial<DayBlock>) => {
@@ -1438,6 +1616,53 @@ export default function AdminPanel({
             };
           }),
         };
+      }),
+    );
+  };
+
+  const updateChallengeStep = (
+    blockId: string,
+    stepId: string,
+    patch: Partial<DayChallengeStep>,
+  ) => {
+    commitBlocks((prev) =>
+      prev.map((block) => {
+        if (block.id !== blockId || block.type !== "challenge_steps") return block;
+        return {
+          ...block,
+          steps: (block.steps ?? []).map((step) =>
+            step.id === stepId ? { ...step, ...patch } : step,
+          ),
+        };
+      }),
+    );
+  };
+
+  const addChallengeStep = (blockId: string) => {
+    commitBlocks((prev) =>
+      prev.map((block) => {
+        if (block.id !== blockId || block.type !== "challenge_steps") return block;
+        const nextIndex = (block.steps?.length ?? 0) + 1;
+        return {
+          ...block,
+          steps: [...(block.steps ?? []), createChallengeStep(`Paso ${nextIndex}`, "")],
+        };
+      }),
+    );
+  };
+
+  const removeChallengeStep = (blockId: string, stepId: string) => {
+    commitBlocks((prev) =>
+      prev.map((block) => {
+        if (block.id !== blockId || block.type !== "challenge_steps") return block;
+        const nextSteps = (block.steps ?? []).filter((step) => step.id !== stepId);
+        if (nextSteps.length === 0) {
+          return {
+            ...block,
+            steps: [createChallengeStep("Paso 1", "")],
+          };
+        }
+        return { ...block, steps: nextSteps };
       }),
     );
   };
@@ -1817,7 +2042,7 @@ export default function AdminPanel({
                 onChange={(e) => setDescription(e.target.value)}
               />
             </div>
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_140px]">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_minmax(0,1.3fr)_140px]">
               <input
                 type="text"
                 placeholder="Slug (opcional, ej. prompt-engineering)"
@@ -1832,6 +2057,25 @@ export default function AdminPanel({
                 value={createLabCoverUrl}
                 onChange={(e) => setCreateLabCoverUrl(e.target.value)}
               />
+              <div className="rounded border border-gray-600 bg-black p-2">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp,image/avif"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      void handleCreateLabCoverUpload(file);
+                      e.currentTarget.value = "";
+                    }}
+                    className="w-full text-xs text-gray-300 file:mr-3 file:rounded file:border-0 file:bg-gray-700 file:px-3 file:py-1 file:text-xs file:text-white hover:file:bg-gray-600"
+                  />
+                </div>
+                <p className="mt-1 text-[10px] text-gray-400">
+                  Uploader directo portada
+                  {isUploadingCreateCover ? " · subiendo..." : ""}
+                </p>
+              </div>
               <div className="flex items-center gap-2 rounded border border-gray-600 bg-black p-2">
                 <input
                   type="color"
@@ -1858,9 +2102,10 @@ export default function AdminPanel({
             />
             <button
               type="submit"
-              className="bg-blue-600 hover:bg-blue-700 px-6 py-2 rounded text-white font-bold"
+              disabled={isUploadingCreateCover}
+              className="bg-blue-600 hover:bg-blue-700 px-6 py-2 rounded text-white font-bold disabled:cursor-not-allowed disabled:opacity-60"
             >
-              Crear Lab
+              {isUploadingCreateCover ? "Subiendo portada..." : "Crear Lab"}
             </button>
             {msg && <span className="ml-4 text-yellow-300">{msg}</span>}
           </form>
@@ -1972,6 +2217,25 @@ export default function AdminPanel({
                               placeholder="URL imagen portada"
                               className="w-full rounded border border-gray-600 bg-black p-2 text-sm"
                             />
+                            <div className="rounded border border-gray-600 bg-black p-2">
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="file"
+                                  accept="image/png,image/jpeg,image/webp,image/avif"
+                                  onChange={(e) => {
+                                    const file = e.target.files?.[0];
+                                    if (!file) return;
+                                    void handleEditLabCoverUpload(lab, file);
+                                    e.currentTarget.value = "";
+                                  }}
+                                  className="w-full text-xs text-gray-300 file:mr-3 file:rounded file:border-0 file:bg-gray-700 file:px-3 file:py-1 file:text-xs file:text-white hover:file:bg-gray-600"
+                                />
+                              </div>
+                              <p className="mt-1 text-[10px] text-gray-400">
+                                Uploader directo portada
+                                {uploadingLabCoverId === lab.id ? " · subiendo..." : ""}
+                              </p>
+                            </div>
                             <div className="flex items-center gap-2 rounded border border-gray-600 bg-black p-2">
                               <input
                                 type="color"
@@ -2119,10 +2383,14 @@ export default function AdminPanel({
                             <button
                               type="button"
                               onClick={() => void saveLabMeta(lab.id)}
-                              disabled={savingLabMetaId === lab.id}
+                              disabled={savingLabMetaId === lab.id || uploadingLabCoverId === lab.id}
                               className="rounded-md border border-emerald-500/70 bg-emerald-900/45 px-2.5 py-1 text-[11px] font-medium leading-4 text-emerald-100 transition hover:bg-emerald-800/55 disabled:opacity-50"
                             >
-                              {savingLabMetaId === lab.id ? "Guardando..." : "Guardar"}
+                              {savingLabMetaId === lab.id
+                                ? "Guardando..."
+                                : uploadingLabCoverId === lab.id
+                                  ? "Subiendo portada..."
+                                  : "Guardar"}
                             </button>
                             <button
                               type="button"
@@ -2134,6 +2402,29 @@ export default function AdminPanel({
                           </>
                         ) : (
                           <>
+                            <label
+                              className={`inline-flex cursor-pointer items-center rounded-md border px-2.5 py-1 text-[11px] font-medium leading-4 transition ${
+                                uploadingLabCoverId === lab.id
+                                  ? "border-sky-500/70 bg-sky-900/40 text-sky-100 opacity-80"
+                                  : "border-sky-500/70 bg-sky-900/30 text-sky-100 hover:bg-sky-800/55"
+                              }`}
+                            >
+                              <input
+                                type="file"
+                                accept="image/png,image/jpeg,image/webp,image/avif"
+                                className="hidden"
+                                disabled={uploadingLabCoverId === lab.id}
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  if (!file) return;
+                                  void handleQuickLabCoverUpload(lab, file);
+                                  e.currentTarget.value = "";
+                                }}
+                              />
+                              {uploadingLabCoverId === lab.id
+                                ? "Subiendo portada..."
+                                : "Subir portada"}
+                            </label>
                             <button
                               type="button"
                               onClick={() => startEditLabMeta(lab)}
@@ -2277,7 +2568,7 @@ export default function AdminPanel({
                     <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
                       <div className="space-y-0.5">
                         <p className="text-[11px] uppercase tracking-[0.16em] text-slate-300/80">
-                          Estado del borrador
+                          Estado de publicación
                         </p>
                         <p
                           className={`text-sm font-semibold ${
@@ -2292,19 +2583,19 @@ export default function AdminPanel({
                                     : "text-slate-200"
                           }`}
                         >
-                          {daySaveState === "saving" && "Guardando cambios..."}
+                          {daySaveState === "saving" && "Publicando cambios..."}
                           {daySaveState === "error" &&
-                            `Error de guardado${daySaveError ? `: ${daySaveError}` : ""}`}
-                          {daySaveState === "dirty" && "Cambios sin guardar"}
+                            `Error de publicación${daySaveError ? `: ${daySaveError}` : ""}`}
+                          {daySaveState === "dirty" && "Borrador local sin publicar"}
                           {daySaveState === "saved" &&
-                            `Guardado a las ${daySavedTimeLabel ?? "--:--"}`}
-                          {daySaveState === "clean" && "Sin cambios pendientes"}
+                            `Publicado a las ${daySavedTimeLabel ?? "--:--"}`}
+                          {daySaveState === "clean" && "Sin cambios pendientes de publicación"}
                         </p>
                       </div>
 
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="rounded-full border border-slate-600/70 bg-black/30 px-2.5 py-1 text-[11px] text-slate-200">
-                          {dayShortcutKeyLabel} + S guardar
+                          {dayShortcutKeyLabel} + S publicar
                         </span>
                         <span className="rounded-full border border-slate-600/70 bg-black/30 px-2.5 py-1 text-[11px] text-slate-200">
                           {dayShortcutKeyLabel} + Z deshacer
@@ -2315,10 +2606,10 @@ export default function AdminPanel({
                           className="rounded-md border border-emerald-400/60 bg-emerald-600/85 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-45"
                         >
                           {isDaySaving
-                            ? "Guardando..."
+                            ? "Publicando..."
                             : editingDayId
-                              ? "Actualizar Día"
-                              : "Guardar Día"}
+                              ? "Publicar cambios"
+                              : "Publicar Día"}
                         </button>
                       </div>
                     </div>
@@ -2491,6 +2782,20 @@ export default function AdminPanel({
                           className="px-3 py-1 text-xs rounded bg-gray-700 hover:bg-gray-600"
                         >
                           + Quiz
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => addBlock("challenge_steps")}
+                          className="px-3 py-1 text-xs rounded border border-emerald-300/45 bg-emerald-500/20 text-emerald-100 hover:bg-emerald-500/30"
+                        >
+                          + Reto guiado
+                        </button>
+                        <button
+                          type="button"
+                          onClick={consolidateChallengeIntoGuidedBlock}
+                          className="px-3 py-1 text-xs rounded border border-emerald-300/40 bg-black/35 text-emerald-100 hover:bg-emerald-500/18"
+                        >
+                          Consolidar reto en 1 bloque
                         </button>
                         <div className="ml-1 flex items-center gap-1 rounded border border-cyan-400/35 bg-cyan-500/10 px-1.5 py-1">
                           <select
@@ -2671,6 +2976,12 @@ export default function AdminPanel({
                       (() => {
                         const blockGroup = block.group ?? getDefaultDayBlockGroup(block.type);
                         const blockRole = normalizeBlockRole(block.role, blockGroup);
+                        const blockResourceSlot = normalizeResourceSlotForBuilder(
+                          block.resourceSlot,
+                          block.type,
+                          blockGroup,
+                          blockRole,
+                        );
                         const isVisibleInPreset =
                           dayBlocksViewPreset === "all" ||
                           dayBlocksViewPreset === blockGroup;
@@ -2752,6 +3063,14 @@ export default function AdminPanel({
                                     nextGroup === "resource"
                                       ? normalizeBlockRole(block.role, nextGroup)
                                       : "support",
+                                  resourceSlot: normalizeResourceSlotForBuilder(
+                                    block.resourceSlot,
+                                    block.type,
+                                    nextGroup,
+                                    nextGroup === "resource"
+                                      ? normalizeBlockRole(block.role, nextGroup)
+                                      : "support",
+                                  ),
                                 });
                               }}
                               className="rounded border border-gray-700 bg-black px-2 py-1 text-xs text-gray-200"
@@ -2768,6 +3087,12 @@ export default function AdminPanel({
                                   onChange={(e) =>
                                     updateBlock(block.id, {
                                       role: e.target.value as DayBlockRole,
+                                      resourceSlot: normalizeResourceSlotForBuilder(
+                                        block.resourceSlot,
+                                        block.type,
+                                        blockGroup,
+                                        e.target.value as DayBlockRole,
+                                      ),
                                     })
                                   }
                                   className="rounded border border-gray-700 bg-black px-2 py-1 text-xs text-gray-200"
@@ -2778,6 +3103,39 @@ export default function AdminPanel({
                               </>
                             )}
                           </div>
+                          {blockGroup === "resource" && (
+                            <div className="grid gap-2 sm:grid-cols-[auto_minmax(0,1fr)] sm:items-center">
+                              <label className="text-xs text-gray-400">Panel recursos</label>
+                              <select
+                                value={blockResourceSlot}
+                                onChange={(e) =>
+                                  updateBlock(block.id, {
+                                    resourceSlot: normalizeResourceSlotForBuilder(
+                                      e.target.value as DayResourceSlot,
+                                      block.type,
+                                      blockGroup,
+                                      blockRole,
+                                    ),
+                                  })
+                                }
+                                className="rounded border border-gray-700 bg-black px-2 py-1 text-xs text-gray-200"
+                              >
+                                <option value="none">No mostrar</option>
+                                {canUseResourceLink(block.type) && (
+                                  <option value="link">Liga</option>
+                                )}
+                                {block.type === "file" && (
+                                  <option value="download">Descargable</option>
+                                )}
+                                {block.type === "text" && (
+                                  <option value="text">Texto</option>
+                                )}
+                                {block.type === "image" && (
+                                  <option value="media">Imagen</option>
+                                )}
+                              </select>
+                            </div>
+                          )}
                           {blockGroup === "resource" && (
                             <p className="text-[11px] text-gray-400">
                               Principal: aparece como paso 1 en Ruta del día y controla el avance.
@@ -2795,6 +3153,76 @@ export default function AdminPanel({
                             minHeightClassName="min-h-[150px]"
                             compact
                           />
+                        )}
+
+                        {block.type === "challenge_steps" && (
+                          <div className="space-y-3">
+                            <div className="space-y-1">
+                              <p className="text-[11px] uppercase tracking-wide text-gray-400">
+                                Título del reto (opcional)
+                              </p>
+                              <RichTextEditor
+                                value={block.title ?? ""}
+                                onChange={(nextHtml) =>
+                                  updateBlock(block.id, { title: nextHtml })
+                                }
+                                placeholder="Ejemplo: Reto guiado del día"
+                                minHeightClassName="min-h-[72px]"
+                                compact
+                              />
+                            </div>
+
+                            <div className="space-y-2">
+                              {(block.steps ?? []).map((step, stepIndex) => (
+                                <div
+                                  key={step.id}
+                                  className="rounded border border-emerald-300/35 bg-emerald-500/8 p-2.5 space-y-2"
+                                >
+                                  <div className="grid gap-2 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center">
+                                    <p className="text-[11px] uppercase tracking-wide text-emerald-100/80">
+                                      Paso {stepIndex + 1}
+                                    </p>
+                                    <input
+                                      type="text"
+                                      value={step.label}
+                                      onChange={(event) =>
+                                        updateChallengeStep(block.id, step.id, {
+                                          label: event.target.value,
+                                        })
+                                      }
+                                      placeholder={`Paso ${stepIndex + 1}`}
+                                      className="rounded border border-gray-700 bg-black px-2 py-1 text-xs text-gray-100"
+                                    />
+                                    <button
+                                      type="button"
+                                      className="px-2 py-1 text-xs rounded bg-red-900/60 hover:bg-red-800"
+                                      onClick={() => removeChallengeStep(block.id, step.id)}
+                                    >
+                                      Quitar
+                                    </button>
+                                  </div>
+
+                                  <RichTextEditor
+                                    value={step.text}
+                                    onChange={(nextHtml) =>
+                                      updateChallengeStep(block.id, step.id, { text: nextHtml })
+                                    }
+                                    placeholder={`Contenido del paso ${stepIndex + 1}`}
+                                    minHeightClassName="min-h-[92px]"
+                                    compact
+                                  />
+                                </div>
+                              ))}
+                            </div>
+
+                            <button
+                              type="button"
+                              className="px-3 py-1 text-xs rounded bg-gray-700 hover:bg-gray-600"
+                              onClick={() => addChallengeStep(block.id)}
+                            >
+                              + Agregar paso
+                            </button>
+                          </div>
                         )}
 
                         {(block.type === "video" ||
@@ -2847,28 +3275,39 @@ export default function AdminPanel({
 
                         {block.type === "checklist" && (
                           <div className="space-y-3">
-                            <input
-                              type="text"
-                              value={block.title ?? ""}
-                              onChange={(e) =>
-                                updateBlock(block.id, { title: e.target.value })
-                              }
-                              placeholder="Titulo del checklist (opcional)"
-                              className="w-full p-2 rounded bg-gray-950 border border-gray-700"
-                            />
+                            <div className="space-y-1">
+                              <p className="text-[11px] uppercase tracking-wide text-gray-400">
+                                Título del checklist (opcional)
+                              </p>
+                              <RichTextEditor
+                                value={block.title ?? ""}
+                                onChange={(nextHtml) =>
+                                  updateBlock(block.id, { title: nextHtml })
+                                }
+                                placeholder="Título del checklist"
+                                minHeightClassName="min-h-[72px]"
+                                compact
+                              />
+                            </div>
                             <div className="space-y-2">
                               {(block.items ?? []).map((item, itemIndex) => (
-                                <div key={item.id} className="flex gap-2">
-                                  <input
-                                    type="text"
+                                <div
+                                  key={item.id}
+                                  className="rounded border border-gray-700/70 bg-black/30 p-2 space-y-2"
+                                >
+                                  <p className="text-[11px] uppercase tracking-wide text-gray-400">
+                                    Punto {itemIndex + 1}
+                                  </p>
+                                  <RichTextEditor
                                     value={item.text}
-                                    onChange={(e) =>
+                                    onChange={(nextHtml) =>
                                       updateChecklistItem(block.id, item.id, {
-                                        text: e.target.value,
+                                        text: nextHtml,
                                       })
                                     }
-                                    placeholder={`Punto ${itemIndex + 1}`}
-                                    className="flex-1 p-2 rounded bg-gray-950 border border-gray-700"
+                                    placeholder={`Contenido del punto ${itemIndex + 1}`}
+                                    minHeightClassName="min-h-[86px]"
+                                    compact
                                   />
                                   <button
                                     type="button"
@@ -2892,15 +3331,20 @@ export default function AdminPanel({
 
                         {block.type === "quiz" && (
                           <div className="space-y-3">
-                            <input
-                              type="text"
-                              value={block.title ?? ""}
-                              onChange={(e) =>
-                                updateBlock(block.id, { title: e.target.value })
-                              }
-                              placeholder="Titulo del quiz (opcional)"
-                              className="w-full p-2 rounded bg-gray-950 border border-gray-700"
-                            />
+                            <div className="space-y-1">
+                              <p className="text-[11px] uppercase tracking-wide text-gray-400">
+                                Título del quiz (opcional)
+                              </p>
+                              <RichTextEditor
+                                value={block.title ?? ""}
+                                onChange={(nextHtml) =>
+                                  updateBlock(block.id, { title: nextHtml })
+                                }
+                                placeholder="Título del quiz"
+                                minHeightClassName="min-h-[72px]"
+                                compact
+                              />
+                            </div>
 
                             <div className="space-y-3">
                               {(block.questions ?? []).map((question, questionIndex) => (
@@ -2923,17 +3367,22 @@ export default function AdminPanel({
                                     </button>
                                   </div>
 
-                                  <input
-                                    type="text"
-                                    value={question.prompt}
-                                    onChange={(e) =>
-                                      updateQuizQuestion(block.id, question.id, {
-                                        prompt: e.target.value,
-                                      })
-                                    }
-                                    placeholder="Enunciado de la pregunta"
-                                    className="w-full p-2 rounded bg-black border border-gray-700"
-                                  />
+                                  <div className="space-y-1">
+                                    <p className="text-[11px] uppercase tracking-wide text-gray-400">
+                                      Enunciado
+                                    </p>
+                                    <RichTextEditor
+                                      value={question.prompt}
+                                      onChange={(nextHtml) =>
+                                        updateQuizQuestion(block.id, question.id, {
+                                          prompt: nextHtml,
+                                        })
+                                      }
+                                      placeholder="Enunciado de la pregunta"
+                                      minHeightClassName="min-h-[92px]"
+                                      compact
+                                    />
+                                  </div>
 
                                   {(question.options ?? []).map((option, optionIndex) => (
                                     <div key={`${question.id}_${optionIndex}`} className="flex gap-2">
@@ -3004,17 +3453,22 @@ export default function AdminPanel({
                                     </select>
                                   </div>
 
-                                  <input
-                                    type="text"
-                                    value={question.explanation ?? ""}
-                                    onChange={(e) =>
-                                      updateQuizQuestion(block.id, question.id, {
-                                        explanation: e.target.value,
-                                      })
-                                    }
-                                    placeholder="Explicación opcional al revisar resultados"
-                                    className="w-full p-2 rounded bg-black border border-gray-700"
-                                  />
+                                  <div className="space-y-1">
+                                    <p className="text-[11px] uppercase tracking-wide text-gray-400">
+                                      Explicación opcional
+                                    </p>
+                                    <RichTextEditor
+                                      value={question.explanation ?? ""}
+                                      onChange={(nextHtml) =>
+                                        updateQuizQuestion(block.id, question.id, {
+                                          explanation: nextHtml,
+                                        })
+                                      }
+                                      placeholder="Explicación opcional al revisar resultados"
+                                      minHeightClassName="min-h-[82px]"
+                                      compact
+                                    />
+                                  </div>
                                 </div>
                               ))}
                             </div>
@@ -3085,10 +3539,10 @@ export default function AdminPanel({
                       className="flex-1 rounded bg-green-600 py-2 font-bold transition hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-45"
                     >
                       {isDaySaving
-                        ? "Guardando..."
+                        ? "Publicando..."
                         : editingDayId
-                          ? "Actualizar Dia"
-                          : "Guardar Dia"}
+                          ? "Publicar cambios"
+                          : "Publicar Dia"}
                     </button>
                     {editingDayId && (
                       <button
@@ -3655,15 +4109,15 @@ function normalizeDayBlocksForSave(blocks: DayBlock[]): DayBlock[] {
         const items = (block.items ?? [])
           .map((item) => ({
             id: item.id,
-            text: item.text.trim(),
+            text: normalizeRichTextInput(item.text ?? ""),
           }))
-          .filter((item) => Boolean(item.text));
+          .filter((item) => hasRichTextContent(item.text));
 
         return {
           ...block,
           group,
           role,
-          title: block.title?.trim() ?? "",
+          title: normalizeRichTextInput(block.title ?? ""),
           items,
         };
       }
@@ -3682,20 +4136,38 @@ function normalizeDayBlocksForSave(blocks: DayBlock[]): DayBlock[] {
 
             return {
               id: question.id,
-              prompt: question.prompt.trim(),
+              prompt: normalizeRichTextInput(question.prompt ?? ""),
               options,
               correctIndex: hasValidCorrect ? question.correctIndex : null,
-              explanation: question.explanation?.trim() ?? "",
+              explanation: normalizeRichTextInput(question.explanation ?? ""),
             };
           })
-          .filter((question) => Boolean(question.prompt) && question.options.length >= 2);
+          .filter((question) => hasRichTextContent(question.prompt) && question.options.length >= 2);
 
         return {
           ...block,
           group,
           role,
-          title: block.title?.trim() ?? "",
+          title: normalizeRichTextInput(block.title ?? ""),
           questions,
+        };
+      }
+
+      if (block.type === "challenge_steps") {
+        const steps = (block.steps ?? [])
+          .map((step, index) => ({
+            id: step.id,
+            label: step.label?.trim() || `Paso ${index + 1}`,
+            text: normalizeRichTextInput(step.text ?? ""),
+          }))
+          .filter((step) => hasRichTextContent(step.text));
+
+        return {
+          ...block,
+          group,
+          role,
+          title: normalizeRichTextInput(block.title ?? ""),
+          steps,
         };
       }
 
@@ -3711,6 +4183,7 @@ function normalizeDayBlocksForSave(blocks: DayBlock[]): DayBlock[] {
       if (block.type === "text") return hasRichTextContent(block.text ?? "");
       if (block.type === "checklist") return (block.items?.length ?? 0) > 0;
       if (block.type === "quiz") return (block.questions?.length ?? 0) > 0;
+      if (block.type === "challenge_steps") return (block.steps?.length ?? 0) > 0;
       return Boolean(block.url);
     });
 }
@@ -3780,8 +4253,7 @@ function buildDayPublishChecklist(
 function createVideoTextChallengeTemplateBlocks(): DayBlock[] {
   const primaryVideo = createBlock("video");
   const supportText = createBlock("text");
-  const challengeText = createBlock("text");
-  const challengeChecklist = createBlock("checklist");
+  const challengeGuide = createBlock("challenge_steps");
 
   primaryVideo.group = "resource";
   primaryVideo.role = "primary";
@@ -3793,22 +4265,27 @@ function createVideoTextChallengeTemplateBlocks(): DayBlock[] {
   supportText.text =
     "<p><strong>Objetivo del día:</strong> [define aquí el objetivo].</p><p><strong>Contexto:</strong> [explica por qué este recurso importa].</p>";
 
-  challengeText.group = "challenge";
-  challengeText.role = "support";
-  challengeText.text =
-    "<p><strong>Reto del día:</strong> [describe la actividad práctica].</p><p><strong>Entrega esperada:</strong> [indica qué debe publicar el alumno].</p>";
-
-  if (challengeChecklist.type === "checklist") {
-    challengeChecklist.group = "challenge";
-    challengeChecklist.title = "Checklist de entrega";
-    challengeChecklist.items = [
-      createChecklistItem("Criterio 1: [completa criterio]"),
-      createChecklistItem("Criterio 2: [completa criterio]"),
-      createChecklistItem("Criterio 3: [completa criterio]"),
+  if (challengeGuide.type === "challenge_steps") {
+    challengeGuide.group = "challenge";
+    challengeGuide.role = "support";
+    challengeGuide.title = "Reto del día";
+    challengeGuide.steps = [
+      createChallengeStep(
+        "Paso 1",
+        "<p>Define la situación real que quieres resolver hoy.</p>",
+      ),
+      createChallengeStep(
+        "Paso 2",
+        "<p>Aplica el prompt o marco del día con contexto específico.</p>",
+      ),
+      createChallengeStep(
+        "Paso 3",
+        "<p>Publica tu resultado y qué cambió respecto a tu versión inicial.</p>",
+      ),
     ];
   }
 
-  return [primaryVideo, supportText, challengeText, challengeChecklist];
+  return [primaryVideo, supportText, challengeGuide];
 }
 
 function createReadingQuizTemplateBlocks(): DayBlock[] {
@@ -3846,8 +4323,7 @@ function createReadingQuizTemplateBlocks(): DayBlock[] {
 function createMediaChecklistTemplateBlocks(): DayBlock[] {
   const primaryMedia = createBlock("video");
   const guideText = createBlock("text");
-  const challengeText = createBlock("text");
-  const challengeChecklist = createBlock("checklist");
+  const challengeGuide = createBlock("challenge_steps");
 
   primaryMedia.group = "resource";
   primaryMedia.role = "primary";
@@ -3859,28 +4335,24 @@ function createMediaChecklistTemplateBlocks(): DayBlock[] {
   guideText.text =
     "<p><strong>Guía rápida:</strong> [pasos o contexto clave para el alumno].</p>";
 
-  challengeText.group = "challenge";
-  challengeText.role = "support";
-  challengeText.text =
-    "<p><strong>Actividad:</strong> [acción concreta que debe realizar el alumno].</p>";
-
-  if (challengeChecklist.type === "checklist") {
-    challengeChecklist.group = "challenge";
-    challengeChecklist.title = "Pasos de la actividad";
-    challengeChecklist.items = [
-      createChecklistItem("Paso 1"),
-      createChecklistItem("Paso 2"),
-      createChecklistItem("Paso 3"),
+  if (challengeGuide.type === "challenge_steps") {
+    challengeGuide.group = "challenge";
+    challengeGuide.role = "support";
+    challengeGuide.title = "Pasos de la actividad";
+    challengeGuide.steps = [
+      createChallengeStep("Paso 1", "<p>Observa el recurso y detecta un patrón clave.</p>"),
+      createChallengeStep("Paso 2", "<p>Replica el patrón con tu propio caso real.</p>"),
+      createChallengeStep("Paso 3", "<p>Comparte resultado y aprendizaje en el foro.</p>"),
     ];
   }
 
-  return [primaryMedia, guideText, challengeText, challengeChecklist];
+  return [primaryMedia, guideText, challengeGuide];
 }
 
 function renderStudentBlockPreview(block: DayBlock) {
   if (block.type === "text") {
-    const html = block.text?.trim();
-    if (!html) {
+    const html = sanitizeRichText(block.text ?? "");
+    if (!hasRichTextContent(html)) {
       return <p className="text-xs text-slate-400">Este bloque aún no tiene contenido.</p>;
     }
     return (
@@ -3892,16 +4364,25 @@ function renderStudentBlockPreview(block: DayBlock) {
   }
 
   if (block.type === "checklist") {
-    const items = (block.items ?? []).filter((item) => item.text.trim().length > 0);
+    const items = (block.items ?? []).filter((item) => hasRichTextContent(item.text));
+    const checklistTitle = sanitizeRichText(block.title ?? "");
     return (
       <div className="space-y-2 text-xs">
-        {block.title && <p className="font-semibold text-emerald-100">{block.title}</p>}
+        {hasRichTextContent(checklistTitle) && (
+          <div
+            className="font-semibold text-emerald-100 [&_p]:my-0.5"
+            dangerouslySetInnerHTML={{ __html: checklistTitle }}
+          />
+        )}
         {items.length > 0 ? (
           <ul className="space-y-1 text-slate-200">
             {items.slice(0, 5).map((item) => (
               <li key={item.id} className="flex items-start gap-1.5">
                 <span className="mt-[3px] h-1.5 w-1.5 rounded-full bg-emerald-300" />
-                <span>{item.text}</span>
+                <div
+                  className="[&_p]:my-0.5"
+                  dangerouslySetInnerHTML={{ __html: sanitizeRichText(item.text) }}
+                />
               </li>
             ))}
           </ul>
@@ -3913,19 +4394,64 @@ function renderStudentBlockPreview(block: DayBlock) {
   }
 
   if (block.type === "quiz") {
-    const question = (block.questions ?? []).find((item) => item.prompt.trim().length > 0);
+    const question = (block.questions ?? []).find((item) => hasRichTextContent(item.prompt));
     if (!question) {
       return <p className="text-xs text-slate-400">Agrega al menos una pregunta.</p>;
     }
+    const quizTitle = sanitizeRichText(block.title ?? "");
+    const questionPrompt = sanitizeRichText(question.prompt ?? "");
     return (
       <div className="space-y-2 text-xs">
-        {block.title && <p className="font-semibold text-cyan-100">{block.title}</p>}
-        <p className="font-medium text-slate-100">{question.prompt}</p>
+        {hasRichTextContent(quizTitle) && (
+          <div
+            className="font-semibold text-cyan-100 [&_p]:my-0.5"
+            dangerouslySetInnerHTML={{ __html: quizTitle }}
+          />
+        )}
+        <div
+          className="font-medium text-slate-100 [&_p]:my-0.5"
+          dangerouslySetInnerHTML={{ __html: questionPrompt }}
+        />
         <ol className="space-y-1 text-slate-300">
           {question.options.filter(Boolean).slice(0, 4).map((option, index) => (
             <li key={`${question.id}_${index}`}>{index + 1}. {option}</li>
           ))}
         </ol>
+      </div>
+    );
+  }
+
+  if (block.type === "challenge_steps") {
+    const steps = (block.steps ?? []).filter((step) => hasRichTextContent(step.text));
+    const title = sanitizeRichText(block.title ?? "");
+    return (
+      <div className="space-y-2 text-xs">
+        {hasRichTextContent(title) && (
+          <div
+            className="font-semibold text-emerald-100 [&_p]:my-0.5"
+            dangerouslySetInnerHTML={{ __html: title }}
+          />
+        )}
+        {steps.length > 0 ? (
+          <div className="space-y-1.5">
+            {steps.slice(0, 4).map((step, index) => (
+              <div
+                key={step.id}
+                className="rounded border border-emerald-300/35 bg-emerald-500/8 px-2 py-1.5"
+              >
+                <p className="text-[10px] uppercase tracking-wider text-emerald-200/90">
+                  {step.label?.trim() || `Paso ${index + 1}`}
+                </p>
+                <div
+                  className="mt-1 text-slate-200 [&_p]:my-0.5"
+                  dangerouslySetInnerHTML={{ __html: sanitizeRichText(step.text ?? "") }}
+                />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-slate-400">Agrega al menos un paso para previsualizar.</p>
+        )}
       </div>
     );
   }
@@ -3973,6 +4499,25 @@ function normalizeBlockRole(
 ): DayBlockRole {
   if (group === "challenge") return "support";
   return role === "primary" ? "primary" : "support";
+}
+
+function normalizeResourceSlotForBuilder(
+  slot: DayResourceSlot | undefined,
+  type: DayBlockType,
+  group: DayBlockGroup,
+  role: DayBlockRole,
+): DayResourceSlot {
+  if (group !== "resource" || role === "primary") return "none";
+
+  if (slot === "text") return type === "text" ? "text" : "none";
+  if (slot === "download") return type === "file" ? "download" : "none";
+  if (slot === "media") return type === "image" ? "media" : "none";
+  if (slot === "link") return canUseResourceLink(type) ? "link" : "none";
+  return "none";
+}
+
+function canUseResourceLink(type: DayBlockType): boolean {
+  return type === "video" || type === "audio" || type === "image" || type === "file";
 }
 
 function cloneDayBlocks(blocks: DayBlock[]): DayBlock[] {
@@ -4028,6 +4573,7 @@ function getBlockTypeLabel(type: DayBlockType): string {
   if (type === "file") return "Documento";
   if (type === "checklist") return "Checklist";
   if (type === "quiz") return "Quiz";
+  if (type === "challenge_steps") return "Reto guiado";
   return type;
 }
 

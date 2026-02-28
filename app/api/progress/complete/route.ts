@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 type ProgressRequest = {
   labId?: unknown;
   dayNumber?: unknown;
+  completed?: unknown;
 };
 
 export async function POST(request: Request) {
@@ -20,6 +21,8 @@ export async function POST(request: Request) {
   const labId = typeof body.labId === "string" ? body.labId : "";
   const dayNumber =
     typeof body.dayNumber === "number" ? body.dayNumber : Number.NaN;
+  const completed =
+    typeof body.completed === "boolean" ? body.completed : true;
 
   if (!labId || !Number.isInteger(dayNumber) || dayNumber < 1) {
     return NextResponse.json({ error: "Payload invalido" }, { status: 400 });
@@ -83,8 +86,43 @@ export async function POST(request: Request) {
     .eq("day_number", dayNumber)
     .maybeSingle();
 
+  if (!completed) {
+    const { data: nextDayProgress } = await supabase
+      .from("progress")
+      .select("id")
+      .eq("user_id", user.id)
+      .eq("lab_id", labId)
+      .gt("day_number", dayNumber)
+      .limit(1)
+      .maybeSingle();
+
+    if (nextDayProgress) {
+      return NextResponse.json(
+        { error: "No puedes marcar este día como pendiente si ya avanzaste al siguiente." },
+        { status: 409 },
+      );
+    }
+
+    if (!existing) {
+      return NextResponse.json({ ok: true, completed: false, alreadyPending: true });
+    }
+
+    const { error: deleteError } = await supabase
+      .from("progress")
+      .delete()
+      .eq("user_id", user.id)
+      .eq("lab_id", labId)
+      .eq("day_number", dayNumber);
+
+    if (deleteError) {
+      return NextResponse.json({ error: deleteError.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ ok: true, completed: false, alreadyPending: false });
+  }
+
   if (existing) {
-    return NextResponse.json({ ok: true, alreadyCompleted: true });
+    return NextResponse.json({ ok: true, completed: true, alreadyCompleted: true });
   }
 
   const { error } = await supabase.from("progress").insert([
@@ -95,5 +133,5 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ ok: true, alreadyCompleted: false });
+  return NextResponse.json({ ok: true, completed: true, alreadyCompleted: false });
 }

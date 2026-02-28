@@ -31,6 +31,21 @@
   --ui-border: #355183;
   --ui-success: #27c06d;
 
+  /* Semantic status colors */
+  --state-active: var(--ast-mint);
+  --state-active-bg: rgba(4, 164, 90, 0.16);
+  --state-active-border: rgba(4, 164, 90, 0.55);
+  --state-done: var(--ast-sky);
+  --state-done-bg: rgba(7, 68, 168, 0.24);
+  --state-done-border: rgba(185, 214, 254, 0.42);
+  --state-pending: #9fb7da;
+  --state-pending-bg: rgba(4, 12, 31, 0.46);
+  --state-pending-border: rgba(185, 214, 254, 0.24);
+  --state-locked: #e6c09f;
+  --state-locked-bg: rgba(58, 44, 30, 0.34);
+  --state-locked-border: rgba(132, 101, 74, 0.45);
+  --state-info: var(--ast-sky);
+
   --background: var(--ui-bg);
   --foreground: var(--ui-text);
 }

@@ -107,6 +107,11 @@ export default function Forum({
     ]);
 
     if (!error) {
+      const optimisticCommentCount = comments.length + 1;
+      onActivityChange?.({
+        commentCount: optimisticCommentCount,
+        hasUserComment: true,
+      });
       setNewComment("");
       setRefreshKey((prev) => prev + 1);
     }
@@ -115,7 +120,17 @@ export default function Forum({
   const deleteComment = async (commentId: string) => {
     const { error } = await supabase.from("comments").delete().eq("id", commentId);
     if (!error) {
-      setComments((prev) => prev.filter((comment) => comment.id !== commentId));
+      setComments((prev) => {
+        const nextComments = prev.filter((comment) => comment.id !== commentId);
+        const hasUserComment = Boolean(
+          user && nextComments.some((comment) => comment.user_id === user.id),
+        );
+        onActivityChange?.({
+          commentCount: nextComments.length,
+          hasUserComment,
+        });
+        return nextComments;
+      });
     }
   };
 

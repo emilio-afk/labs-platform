@@ -6,11 +6,16 @@ import { notFound } from "next/navigation";
 import LabWorkspace, { type WorkspaceDay } from "@/components/LabWorkspace";
 import ConnectedDotsBackground from "@/components/ConnectedDotsBackground";
 
+export const dynamic = "force-dynamic";
+
 type Lab = {
   id: string;
   slug?: string | null;
   title: string;
   description: string | null;
+  cover_image_url?: string | null;
+  image_url?: string | null;
+  background_image_url?: string | null;
 };
 
 type LabDay = {
@@ -21,6 +26,11 @@ type LabDay = {
   video_url: string | null;
   content: string | null;
 };
+
+const LAB_SELECT_WITH_MEDIA =
+  "id, slug, title, description, cover_image_url, image_url, background_image_url";
+const LAB_SELECT_WITH_COVER = "id, slug, title, description, cover_image_url";
+const LAB_SELECT_BASE = "id, slug, title, description";
 
 export default async function LabDetails({
   params,
@@ -54,19 +64,57 @@ export default async function LabDetails({
   const isAdmin = profile?.role === "admin";
   const dataClient = guestMode ? (adminSupabase ?? supabase) : supabase;
 
-  const labById = await dataClient
-    .from("labs")
-    .select("id, slug, title, description")
-    .eq("id", id)
-    .maybeSingle();
-  let lab = labById.data as Lab | null;
+  const inputLooksLikeUuid = isUuid(id);
+  let lab: Lab | null = null;
+
+  if (inputLooksLikeUuid) {
+    const labByIdWithMedia = await dataClient
+      .from("labs")
+      .select(LAB_SELECT_WITH_MEDIA)
+      .eq("id", id)
+      .maybeSingle();
+    const labByIdWithCover = isMissingLabMediaColumnsError(
+      labByIdWithMedia.error?.message,
+    )
+      ? await dataClient
+          .from("labs")
+          .select(LAB_SELECT_WITH_COVER)
+          .eq("id", id)
+          .maybeSingle()
+      : labByIdWithMedia;
+    const labById = isMissingCoverColumnError(labByIdWithCover.error?.message)
+      ? await dataClient
+          .from("labs")
+          .select(LAB_SELECT_BASE)
+          .eq("id", id)
+          .maybeSingle()
+      : labByIdWithCover;
+    if (labById.error) throw labById.error;
+    lab = labById.data as Lab | null;
+  }
 
   if (!lab) {
-    const bySlug = await dataClient
+    const bySlugWithMedia = await dataClient
       .from("labs")
-      .select("id, slug, title, description")
+      .select(LAB_SELECT_WITH_MEDIA)
       .eq("slug", id)
       .maybeSingle();
+    const bySlugWithCover = isMissingLabMediaColumnsError(
+      bySlugWithMedia.error?.message,
+    )
+      ? await dataClient
+          .from("labs")
+          .select(LAB_SELECT_WITH_COVER)
+          .eq("slug", id)
+          .maybeSingle()
+      : bySlugWithMedia;
+    const bySlug = isMissingCoverColumnError(bySlugWithCover.error?.message)
+      ? await dataClient
+          .from("labs")
+          .select(LAB_SELECT_BASE)
+          .eq("slug", id)
+          .maybeSingle()
+      : bySlugWithCover;
     if (!bySlug.error) {
       lab = bySlug.data as Lab | null;
     } else if (!isMissingSlugColumnError(bySlug.error.message)) {
@@ -76,6 +124,10 @@ export default async function LabDetails({
 
   if (!lab) notFound();
   const resolvedLabId = lab.id;
+  const labPosterUrl =
+    typeof lab.cover_image_url === "string" && lab.cover_image_url.trim()
+      ? lab.cover_image_url.trim()
+      : null;
 
   const { data: entitlement } = user
     ? await supabase
@@ -126,6 +178,7 @@ export default async function LabDetails({
     : [];
   const completedDaySet = new Set(completedDays);
   const canAccessDay = (dayNumber: number) => {
+    if (isAdmin) return true;
     if (isPreview && dayNumber > 1) return false;
     if (dayNumber <= 1) return true;
     return completedDaySet.has(dayNumber - 1);
@@ -148,7 +201,7 @@ export default async function LabDetails({
       <ConnectedDotsBackground />
       <div className="pointer-events-none fixed inset-0 z-[1] bg-[linear-gradient(180deg,rgba(4,9,22,0.5),rgba(6,12,28,0.62))]" />
 
-      <div className="sticky top-0 z-40 border-b border-[var(--ast-sky)]/26 bg-[rgba(2,10,28,0.84)] backdrop-blur-xl">
+      <div className="sticky top-0 z-40 bg-[rgba(2,10,28,0.84)] backdrop-blur-xl">
         <div className="mx-auto grid h-14 max-w-7xl grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 px-3 sm:px-4 md:h-[60px] md:gap-3 md:px-6">
           <div className="flex items-center">
             <Link
@@ -195,14 +248,14 @@ export default async function LabDetails({
         </div>
       </div>
 
-      <div className="relative z-10 border-b border-[var(--ast-sky)]/25 bg-[linear-gradient(95deg,rgba(2,20,58,0.82),rgba(8,46,102,0.5),rgba(4,87,70,0.3))] px-3 pb-2 pt-5 sm:px-4 md:px-6 md:pb-3 md:pt-6">
+      <div className="relative z-10 bg-[linear-gradient(95deg,rgba(2,20,58,0.82),rgba(8,46,102,0.5),rgba(4,87,70,0.3))] px-3 pb-2 pt-5 sm:px-4 md:px-6 md:pb-3 md:pt-6">
         <div
           aria-hidden="true"
           className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_10%_14%,rgba(10,86,198,0.2),transparent_40%),radial-gradient(circle_at_88%_22%,rgba(4,164,90,0.16),transparent_42%)]"
         />
 
         <div className="relative mx-auto max-w-7xl space-y-5">
-          <div className="grid gap-5 lg:grid-cols-2 lg:items-start lg:gap-8">
+          <div className="grid gap-5 lg:grid-cols-2 lg:items-stretch lg:gap-8">
             <header className="min-w-0 space-y-3 md:space-y-4">
               <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--ast-sky)]/82">
                 Lab en ejecución
@@ -216,19 +269,18 @@ export default async function LabDetails({
                 </p>
               )}
             </header>
-            <div className="relative min-w-0 lg:pl-7 lg:pt-1">
+            <div className="relative min-w-0 lg:self-stretch lg:pl-7">
               <span
                 aria-hidden="true"
-                className="pointer-events-none absolute left-0 top-4 hidden w-px bg-[var(--ast-sky)]/16 lg:block"
-                style={{ bottom: "1.2rem" }}
+                className="pointer-events-none absolute bottom-0 left-0 top-0 hidden w-px bg-[var(--ast-sky)]/16 lg:block"
               />
               <div id="day-route-hero-slot" className="min-h-[150px] lg:flex lg:items-center" />
             </div>
           </div>
 
           <section className="space-y-3 pt-1">
-            <details className="group" open>
-              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-md border border-[var(--ast-sky)]/22 bg-[rgba(4,12,31,0.38)] px-3 py-2 [&::-webkit-details-marker]:hidden">
+            <details className="group">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-md bg-[rgba(4,12,31,0.38)] px-3 py-2 [&::-webkit-details-marker]:hidden">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--ast-sky)]/82">
                   Ruta de módulos
                 </p>
@@ -282,19 +334,26 @@ export default async function LabDetails({
                   const baseClass =
                     "group relative flex h-[92px] flex-col rounded-lg border px-2.5 py-1.5 text-left transition";
                   const toneClass = dayLocked
-                    ? "border-[#84654a]/45 bg-[rgba(58,44,30,0.34)] text-[#cab49e]"
+                    ? "border-[color:var(--state-locked-border)] bg-[color:var(--state-locked-bg)] text-[color:var(--state-locked)]"
                     : isCurrent
-                      ? "border-[var(--ast-mint)]/52 bg-[rgba(0,73,44,0.18)] text-[var(--ast-mint)]"
+                      ? "border-[color:var(--state-active-border)] bg-[color:var(--state-active-bg)] text-[color:var(--state-active)]"
                       : isDone
-                        ? "border-[var(--ast-sky)]/35 bg-[rgba(7,68,168,0.22)] text-[#d6e7ff]"
-                        : "border-[var(--ast-sky)]/24 bg-[rgba(4,12,31,0.48)] text-[#d6e7ff]";
+                        ? "border-[color:var(--state-done-border)] bg-[color:var(--state-done-bg)] text-[color:var(--state-done)]"
+                        : "border-[color:var(--state-pending-border)] bg-[color:var(--state-pending-bg)] text-[#d6e7ff]";
                   const dayTagClass = dayLocked
-                    ? "border-[#b28761]/45 bg-[rgba(102,73,42,0.34)] text-[#e6c09f]"
+                    ? "border-[color:var(--state-locked-border)] bg-[color:var(--state-locked-bg)] text-[color:var(--state-locked)]"
                     : isCurrent
-                      ? "border-[var(--ast-mint)]/65 bg-[rgba(4,164,90,0.16)] text-[var(--ast-mint)]"
+                      ? "border-[color:var(--state-active-border)] bg-[color:var(--state-active-bg)] text-[color:var(--state-active)]"
                       : isDone
-                        ? "border-[var(--ast-sky)]/55 bg-[rgba(7,68,168,0.28)] text-[var(--ast-sky)]"
-                        : "border-[var(--ast-sky)]/34 bg-[rgba(4,12,31,0.6)] text-[#bed7fb]";
+                        ? "border-[color:var(--state-done-border)] bg-[color:var(--state-done-bg)] text-[color:var(--state-done)]"
+                        : "border-[color:var(--state-pending-border)] bg-[color:var(--state-pending-bg)] text-[color:var(--state-pending)]";
+                  const stateHintClass = dayLocked
+                    ? "text-[color:var(--state-locked)]/88"
+                    : isCurrent
+                      ? "text-[color:var(--state-active)]/92"
+                      : isDone
+                        ? "text-[color:var(--state-done)]/92"
+                        : "text-[color:var(--state-pending)]/92";
 
                   const innerContent = (
                     <>
@@ -313,7 +372,7 @@ export default async function LabDetails({
                           {dayItem.title}
                         </p>
                       </div>
-                      <p className="text-[10px] font-medium text-[#9db3d6]/92">
+                      <p className={`text-[10px] font-medium ${stateHintClass}`}>
                         {stateHint}
                       </p>
                     </>
@@ -385,6 +444,8 @@ export default async function LabDetails({
           initialDayNumber={initialDayForView}
           completedDayNumbers={completedDays}
           previewMode={isPreview}
+          labTitle={lab.title}
+          labPosterUrl={labPosterUrl}
         />
       </div>
     </div>
@@ -397,5 +458,36 @@ function isMissingSlugColumnError(message: string): boolean {
     lower.includes("column") &&
     lower.includes("slug") &&
     (lower.includes("does not exist") || lower.includes("schema cache"))
+  );
+}
+
+function isMissingLabMediaColumnsError(message?: string): boolean {
+  if (!message) return false;
+  const lower = message.toLowerCase();
+  const missingColumn =
+    lower.includes("image_url") ||
+    lower.includes("background_image_url");
+
+  return (
+    lower.includes("column") &&
+    missingColumn &&
+    (lower.includes("does not exist") || lower.includes("schema cache"))
+  );
+}
+
+function isMissingCoverColumnError(message?: string): boolean {
+  if (!message) return false;
+  const lower = message.toLowerCase();
+
+  return (
+    lower.includes("column") &&
+    lower.includes("cover_image_url") &&
+    (lower.includes("does not exist") || lower.includes("schema cache"))
+  );
+}
+
+function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    value,
   );
 }
