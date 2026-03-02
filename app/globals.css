@@ -35,9 +35,9 @@
   --state-active: var(--ast-mint);
   --state-active-bg: rgba(4, 164, 90, 0.16);
   --state-active-border: rgba(4, 164, 90, 0.55);
-  --state-done: var(--ast-sky);
-  --state-done-bg: rgba(7, 68, 168, 0.24);
-  --state-done-border: rgba(185, 214, 254, 0.42);
+  --state-done: #8ef0c1;
+  --state-done-bg: rgba(4, 164, 90, 0.2);
+  --state-done-border: rgba(4, 164, 90, 0.45);
   --state-pending: #9fb7da;
   --state-pending-bg: rgba(4, 12, 31, 0.46);
   --state-pending-border: rgba(185, 214, 254, 0.24);

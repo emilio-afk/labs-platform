@@ -71,25 +71,25 @@ const EMPTY_DAY_STATE: DayLocalState = {
 function getWorkflowTone(status: WorkflowStatus): WorkflowTone {
   if (status === "Actual") {
     return {
-      stepBadgeClass: "bg-[var(--ast-mint)] text-[var(--ast-black)]",
+      stepBadgeClass: "bg-[#4da3ff] text-[#04142e]",
       statusBadgeClass:
-        "border-[var(--ast-mint)]/55 bg-[rgba(4,164,90,0.16)] text-[var(--ast-mint)]",
-      titleClass: "text-[#54efb3]",
-      metaClass: "text-[#9fe2c4]",
+        "border-[#4da3ff]/58 bg-[rgba(77,163,255,0.18)] text-[#8fccff]",
+      titleClass: "text-[#79beff]",
+      metaClass: "text-[#a7d5ff]",
       toggleButtonClass:
-        "border-[var(--ast-mint)]/30 bg-[rgba(0,44,32,0.28)] text-[#bde8d6] hover:border-[var(--ast-mint)]/52 hover:text-[#e8fff5]",
+        "border-[#4da3ff]/36 bg-[rgba(10,86,198,0.2)] text-[#c7e5ff] hover:border-[#4da3ff]/58 hover:text-[#eef7ff]",
     };
   }
 
   if (status === "Listo") {
     return {
-      stepBadgeClass: "bg-[var(--ast-cobalt)]/72 text-[#e2efff]",
+      stepBadgeClass: "bg-[var(--ast-mint)]/82 text-[var(--ast-black)]",
       statusBadgeClass:
-        "border-[var(--ast-sky)]/42 bg-[rgba(7,68,168,0.24)] text-[var(--ast-sky)]",
-      titleClass: "text-[#d8e7ff]",
-      metaClass: "text-[#a8c0e2]",
+        "border-[var(--ast-mint)]/44 bg-[rgba(4,164,90,0.2)] text-[#96f2c8]",
+      titleClass: "text-[#d9ffe9]",
+      metaClass: "text-[#9fd8bd]",
       toggleButtonClass:
-        "border-[var(--ast-sky)]/30 bg-[rgba(4,12,31,0.42)] text-[#d8e7ff] hover:border-[var(--ast-sky)]/48 hover:text-white",
+        "border-[var(--ast-mint)]/28 bg-[rgba(0,73,44,0.24)] text-[#b8f3d4] hover:border-[var(--ast-mint)]/52 hover:text-[#effff7]",
     };
   }
 
@@ -109,7 +109,7 @@ function getWorkflowCompletionHint(stepId: WorkflowStepId | undefined): string {
     return 'Revisa el recurso completo y presiona "Marcar recurso como listo".';
   }
   if (stepId === "challenge") {
-    return 'Escribe tu respuesta y presiona "Guardar respuesta" para marcar este paso.';
+    return 'Completa la actividad del reto o guarda una reflexión para marcar este paso.';
   }
   if (stepId === "forum") {
     return "Publica un comentario en el foro para cerrar este paso.";
@@ -426,11 +426,10 @@ export default function LabContent({
     (block) => block.type === "file" && Boolean(block.url?.trim()),
   );
 
-  const checklistBlocks = blocks.filter(
+  const challengeChecklistBlocks = challengeBlocks.filter(
     (block) => block.type === "checklist" && (block.items?.length ?? 0) > 0,
   );
-
-  const quizBlocks = blocks.filter(
+  const challengeQuizBlocks = challengeBlocks.filter(
     (block) => block.type === "quiz" && (block.questions?.length ?? 0) > 0,
   );
 
@@ -468,11 +467,30 @@ export default function LabContent({
     setRevealedQuizzes((prev) => ({ ...prev, [blockId]: true }));
   };
 
-  const hasChallengeWork =
-    showChallengeSection || checklistBlocks.length > 0 || quizBlocks.length > 0;
+  const hasChallengeWork = showChallengeSection;
   const hasForumStep = !previewMode;
   const videoStepDone = resourceStepCompleted;
-  const challengeStepDone = !hasChallengeWork || challengeResponseSaved;
+  const challengeHasInteractiveBlocks =
+    challengeChecklistBlocks.length > 0 || challengeQuizBlocks.length > 0;
+  const challengeChecklistCompleted =
+    challengeChecklistBlocks.length === 0 ||
+    challengeChecklistBlocks.every((block) => {
+      const selected = new Set(checklistSelections[block.id] ?? []);
+      const itemCount = block.items?.length ?? 0;
+      const doneCount = (block.items ?? []).filter((item) => selected.has(item.id)).length;
+      return itemCount > 0 && doneCount === itemCount;
+    });
+  const challengeQuizCompleted =
+    challengeQuizBlocks.length === 0 ||
+    challengeQuizBlocks.every((block) => {
+      const result = getQuizResult(block, quizAnswers[block.id] ?? {});
+      return result.total > 0 && result.answered === result.total;
+    });
+  const challengeInteractionCompleted = challengeChecklistCompleted && challengeQuizCompleted;
+  const challengeStepDone =
+    !hasChallengeWork ||
+    challengeResponseSaved ||
+    (bootCompleted && challengeHasInteractiveBlocks && challengeInteractionCompleted);
   const forumStepDone = !hasForumStep || hasUserForumComment;
 
   const scrollToSection = useCallback((id: string) => {
@@ -553,7 +571,10 @@ export default function LabContent({
   const allWorkflowStepsCompleted =
     workflowTotalCount > 0 && workflowCompletedCount === workflowTotalCount;
   const nextWorkflowStep = workflowSteps[activeWorkflowStepIndex + 1] ?? null;
-  const activeWorkflowHint = getWorkflowCompletionHint(activeWorkflowStep?.id);
+  const activeWorkflowHint =
+    activeWorkflowStep?.id === "challenge" && challengeHasInteractiveBlocks
+      ? 'Completa los bloques del reto (quiz/checklist) o guarda una reflexión con "Guardar respuesta".'
+      : getWorkflowCompletionHint(activeWorkflowStep?.id);
   const nextWorkflowHint = allWorkflowStepsCompleted
     ? "Ruta completada. Puedes repasar cualquier sección o avanzar al siguiente día."
     : nextWorkflowStep
@@ -589,38 +610,62 @@ export default function LabContent({
   const forumTone = getWorkflowTone(forumStatus);
   const resourceContainerToneClass =
     resourceStatus === "Actual"
-      ? "border-[rgba(4,164,90,0.42)] before:bg-[linear-gradient(90deg,rgba(4,164,90,0.05),rgba(4,164,90,0.62),rgba(4,164,90,0.05))]"
-      : "border-[#2d5387]/58 before:bg-[linear-gradient(90deg,rgba(76,150,255,0.05),rgba(76,150,255,0.65),rgba(76,150,255,0.05))]";
+      ? "border-[rgba(77,163,255,0.5)] before:bg-[linear-gradient(90deg,rgba(77,163,255,0.05),rgba(77,163,255,0.72),rgba(77,163,255,0.05))]"
+      : resourceStatus === "Listo"
+        ? "border-[rgba(4,164,90,0.46)] before:bg-[linear-gradient(90deg,rgba(4,164,90,0.05),rgba(4,164,90,0.58),rgba(4,164,90,0.05))]"
+        : "border-[#2d5387]/58 before:bg-[linear-gradient(90deg,rgba(76,150,255,0.05),rgba(76,150,255,0.65),rgba(76,150,255,0.05))]";
   const challengeContainerToneClass =
     challengeStatus === "Actual"
-      ? "border-[rgba(4,164,90,0.42)] before:bg-[linear-gradient(90deg,rgba(4,164,90,0.05),rgba(4,164,90,0.62),rgba(4,164,90,0.05))]"
-      : "border-[#2d5387]/58 before:bg-[linear-gradient(90deg,rgba(76,150,255,0.05),rgba(76,150,255,0.65),rgba(76,150,255,0.05))]";
+      ? "border-[rgba(77,163,255,0.5)] before:bg-[linear-gradient(90deg,rgba(77,163,255,0.05),rgba(77,163,255,0.72),rgba(77,163,255,0.05))]"
+      : challengeStatus === "Listo"
+        ? "border-[rgba(4,164,90,0.46)] before:bg-[linear-gradient(90deg,rgba(4,164,90,0.05),rgba(4,164,90,0.58),rgba(4,164,90,0.05))]"
+        : "border-[#2d5387]/58 before:bg-[linear-gradient(90deg,rgba(76,150,255,0.05),rgba(76,150,255,0.65),rgba(76,150,255,0.05))]";
   const forumContainerToneClass =
     forumStatus === "Actual"
-      ? "border-[rgba(4,164,90,0.42)] bg-[linear-gradient(160deg,rgba(9,21,52,0.95),rgba(5,13,32,0.95))] before:bg-[linear-gradient(90deg,rgba(4,164,90,0.05),rgba(4,164,90,0.62),rgba(4,164,90,0.05))]"
-      : forumStatus === "Pendiente"
+      ? "border-[rgba(77,163,255,0.54)] bg-[linear-gradient(160deg,rgba(9,21,52,0.95),rgba(5,13,32,0.95))] before:bg-[linear-gradient(90deg,rgba(77,163,255,0.06),rgba(77,163,255,0.78),rgba(77,163,255,0.06))]"
+      : forumStatus === "Listo"
+        ? "border-[rgba(4,164,90,0.48)] bg-[linear-gradient(160deg,rgba(4,30,46,0.96),rgba(3,22,38,0.96))] ring-1 ring-[rgba(4,164,90,0.22)] before:bg-[linear-gradient(90deg,rgba(4,164,90,0.08),rgba(4,164,90,0.72),rgba(4,164,90,0.08))]"
+        : forumStatus === "Pendiente"
         ? "border-[rgba(76,150,255,0.68)] bg-[linear-gradient(160deg,rgba(13,33,78,0.96),rgba(7,18,45,0.96))] ring-1 ring-[rgba(76,150,255,0.2)] before:bg-[linear-gradient(90deg,rgba(76,150,255,0.12),rgba(76,150,255,0.82),rgba(76,150,255,0.12))]"
         : "border-[#2d5387]/62 bg-[linear-gradient(160deg,rgba(9,21,52,0.95),rgba(5,13,32,0.95))] before:bg-[linear-gradient(90deg,rgba(76,150,255,0.05),rgba(76,150,255,0.62),rgba(76,150,255,0.05))]";
   const challengeSurfaceToneClass =
     challengeStatus === "Actual"
-      ? "border-[var(--ast-mint)]/35 bg-[rgba(0,73,44,0.2)]"
-      : "border-[var(--ast-sky)]/30 bg-[rgba(7,27,63,0.4)]";
+      ? "border-[#4da3ff]/36 bg-[rgba(10,86,198,0.24)]"
+      : challengeStatus === "Listo"
+        ? "border-[var(--ast-mint)]/34 bg-[rgba(0,73,44,0.18)]"
+        : "border-[var(--ast-sky)]/30 bg-[rgba(7,27,63,0.4)]";
   const challengeLabelToneClass =
-    challengeStatus === "Actual" ? "text-[var(--ast-mint)]/90" : "text-[var(--ast-sky)]/90";
+    challengeStatus === "Actual"
+      ? "text-[#93d0ff]"
+      : challengeStatus === "Listo"
+        ? "text-[var(--ast-mint)]/90"
+        : "text-[var(--ast-sky)]/90";
   const challengeAccentBorderClass =
-    challengeStatus === "Actual" ? "border-[var(--ast-mint)]/35" : "border-[var(--ast-sky)]/30";
+    challengeStatus === "Actual"
+      ? "border-[#4da3ff]/36"
+      : challengeStatus === "Listo"
+        ? "border-[var(--ast-mint)]/35"
+        : "border-[var(--ast-sky)]/30";
   const challengeFocusBorderClass =
-    challengeStatus === "Actual" ? "focus:border-[var(--ast-mint)]" : "focus:border-[var(--ast-sky)]";
+    challengeStatus === "Actual"
+      ? "focus:border-[#4da3ff]"
+      : challengeStatus === "Listo"
+        ? "focus:border-[var(--ast-mint)]"
+        : "focus:border-[var(--ast-sky)]";
   const challengeHintToneClass =
-    challengeStatus === "Actual" ? "text-[#9bcfc0]" : "text-[#9fb7da]";
+    challengeStatus === "Actual"
+      ? "text-[#9bcaf8]"
+      : challengeStatus === "Listo"
+        ? "text-[#9bcfc0]"
+        : "text-[#9fb7da]";
   const resourceActiveHaloClass = resourceStepMeta?.isActive
-    ? "ring-1 ring-[var(--ast-mint)]/55 shadow-[0_0_0_1px_rgba(4,164,90,0.38),0_0_30px_rgba(4,164,90,0.26),0_16px_34px_rgba(3,8,22,0.46)]"
+    ? "ring-1 ring-[#4da3ff]/60 shadow-[0_0_0_1px_rgba(77,163,255,0.45),0_0_30px_rgba(77,163,255,0.28),0_16px_34px_rgba(3,8,22,0.46)]"
     : "";
   const challengeActiveHaloClass = challengeStepMeta?.isActive
-    ? "ring-1 ring-[var(--ast-mint)]/55 shadow-[0_0_0_1px_rgba(4,164,90,0.38),0_0_30px_rgba(4,164,90,0.26),0_16px_34px_rgba(2,12,11,0.5)]"
+    ? "ring-1 ring-[#4da3ff]/60 shadow-[0_0_0_1px_rgba(77,163,255,0.45),0_0_30px_rgba(77,163,255,0.28),0_16px_34px_rgba(2,12,11,0.5)]"
     : "";
   const forumActiveHaloClass = forumStepMeta?.isActive
-    ? "ring-1 ring-[var(--ast-mint)]/52 shadow-[0_0_0_1px_rgba(4,164,90,0.34),0_0_28px_rgba(4,164,90,0.2),0_16px_34px_rgba(3,10,24,0.5)]"
+    ? "ring-1 ring-[#4da3ff]/56 shadow-[0_0_0_1px_rgba(77,163,255,0.42),0_0_28px_rgba(77,163,255,0.24),0_16px_34px_rgba(3,10,24,0.5)]"
     : "";
 
   const handleForumActivityChange = useCallback(
@@ -1036,10 +1081,10 @@ export default function LabContent({
                   </div>
 
                   {revealResults && hasCorrectAnswer && (
-                    <p className={`text-xs ${isCorrect ? "text-green-400" : "text-red-400"}`}>
+                    <p className={`text-xs ${isCorrect ? "text-[#8df0bf]" : "text-[#c7d8f5]"}`}>
                       {isCorrect
-                        ? "Respuesta correcta"
-                        : `Respuesta correcta: ${(question.options ?? [])[question.correctIndex ?? 0] ?? "N/D"}`}
+                        ? "Coincide con la referencia del ejercicio."
+                        : `Referencia sugerida: ${(question.options ?? [])[question.correctIndex ?? 0] ?? "N/D"}`}
                     </p>
                   )}
 
@@ -1060,7 +1105,7 @@ export default function LabContent({
               onClick={() => revealQuiz(block.id)}
               className="px-3 py-2 rounded bg-[var(--ast-emerald)] hover:bg-[var(--ast-forest)] text-sm font-semibold text-black"
             >
-              Revisar respuestas
+              Comparar con referencia
             </button>
             <p className="text-xs text-[#9fb3d6]">
               Respondidas: {quizResult.answered}/{quizResult.total}
@@ -1164,12 +1209,18 @@ export default function LabContent({
         }`}
       >
         <div className="min-w-0">
-          <p className="inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--ast-mint)]/90">
-            <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-[var(--ast-mint)]/90" />
+          <p className="inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#8fccff]">
+            <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-[#4da3ff]" />
             Ruta del día
           </p>
           <div className="mt-1 flex flex-wrap items-center gap-2">
-            <span className="rounded-full border border-[var(--ast-sky)]/35 bg-[rgba(7,68,168,0.2)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--ast-sky)]">
+            <span
+              className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] ${
+                allWorkflowStepsCompleted
+                  ? "border-[var(--ast-mint)]/45 bg-[rgba(4,164,90,0.2)] text-[#92efc5]"
+                  : "border-[var(--ast-sky)]/35 bg-[rgba(7,68,168,0.2)] text-[var(--ast-sky)]"
+              }`}
+            >
               {allWorkflowStepsCompleted
                 ? "Ruta completada"
                 : `Paso ${activeWorkflowStepIndex + 1} de ${workflowTotalCount}`}
@@ -1204,9 +1255,9 @@ export default function LabContent({
                       title={step.label}
                       className={`cursor-pointer rounded-md border px-2.5 py-1.5 text-left text-[11px] font-semibold whitespace-nowrap transition ${
                         step.done
-                          ? "border-[var(--ast-sky)]/48 bg-[rgba(7,68,168,0.24)] text-[var(--ast-sky)]"
+                          ? "border-[var(--ast-mint)]/42 bg-[rgba(4,164,90,0.18)] text-[#9ff6ca]"
                           : isActive
-                            ? "border-[var(--ast-mint)]/58 bg-[rgba(4,164,90,0.12)] text-[var(--ast-mint)]"
+                            ? "border-[#4da3ff]/62 bg-[rgba(77,163,255,0.14)] text-[#8fccff]"
                             : "border-[var(--ast-sky)]/24 bg-[rgba(6,18,43,0.42)] text-[#a9c1e3] hover:border-[var(--ast-sky)]/46 hover:text-[#dce9ff]"
                       }`}
                     >
@@ -1214,9 +1265,9 @@ export default function LabContent({
                         <span
                           className={`inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold ${
                             step.done
-                              ? "bg-[var(--ast-sky)]/18 text-[var(--ast-sky)]"
+                              ? "bg-[var(--ast-mint)]/24 text-[var(--ast-mint)]"
                               : isActive
-                                ? "bg-[var(--ast-mint)]/18 text-[var(--ast-mint)]"
+                                ? "bg-[#4da3ff]/20 text-[#8fccff]"
                                 : "bg-[rgba(7,30,72,0.7)] text-[#98b0d3]"
                           }`}
                         >
@@ -1224,7 +1275,7 @@ export default function LabContent({
                         </span>
                         <span>{step.label}</span>
                         {isActive && !step.done && (
-                          <span className="rounded-full border border-[var(--ast-mint)]/35 bg-[rgba(4,164,90,0.12)] px-1.5 py-[1px] text-[9px] font-semibold uppercase tracking-[0.08em] text-[var(--ast-mint)]">
+                          <span className="rounded-full border border-[#4da3ff]/40 bg-[rgba(77,163,255,0.14)] px-1.5 py-[1px] text-[9px] font-semibold uppercase tracking-[0.08em] text-[#8fccff]">
                             Ahora
                           </span>
                         )}
@@ -1397,7 +1448,7 @@ export default function LabContent({
               className={`relative overflow-hidden rounded-2xl border bg-[linear-gradient(160deg,rgba(5,27,38,0.97),rgba(3,18,27,0.96))] shadow-[0_14px_30px_rgba(2,12,11,0.44)] transition-all duration-300 before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px ${challengeContainerToneClass} ${challengeCollapsed ? "p-3 md:p-4" : "p-5 md:p-6"} ${challengeActiveHaloClass}`}
             >
               <div
-                className={`grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 ${challengeCollapsed ? "mb-0" : `mb-5 border-b ${challengeStatus === "Actual" ? "border-[var(--ast-mint)]/18" : "border-[var(--ast-sky)]/18"} pb-3`}`}
+                className={`grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 ${challengeCollapsed ? "mb-0" : `mb-5 border-b ${challengeStatus === "Actual" ? "border-[#4da3ff]/24" : "border-[var(--ast-sky)]/18"} pb-3`}`}
               >
                 <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-3">
                   {challengeStepMeta && (
@@ -1483,7 +1534,9 @@ export default function LabContent({
                       )}
                     </div>
                     <p className={`mt-1 text-[11px] ${challengeHintToneClass}`}>
-                      El paso se marca como listo solo cuando guardas manualmente.
+                      {challengeHasInteractiveBlocks
+                        ? "Este paso queda listo al completar los bloques interactivos o al guardar tu reflexión."
+                        : "Este paso se marca como listo cuando guardas tu reflexión."}
                     </p>
                   </div>
 
@@ -1516,7 +1569,7 @@ export default function LabContent({
             id="day-forum"
             className={`relative overflow-hidden rounded-2xl border shadow-[0_14px_30px_rgba(3,10,24,0.44)] transition-all duration-300 before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px ${forumContainerToneClass} ${forumCollapsed ? "p-3 md:p-4" : "p-5 md:p-6"} ${forumActiveHaloClass}`}
           >
-            <div className={`grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 ${forumCollapsed ? "" : `mb-5 border-b ${forumStatus === "Actual" ? "border-[var(--ast-mint)]/18" : "border-[var(--ast-sky)]/18"} pb-3`}`}>
+            <div className={`grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 ${forumCollapsed ? "" : `mb-5 border-b ${forumStatus === "Actual" ? "border-[#4da3ff]/24" : "border-[var(--ast-sky)]/18"} pb-3`}`}>
               <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-3">
                 {forumStepMeta && (
                   <span
