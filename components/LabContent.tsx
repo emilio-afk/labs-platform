@@ -104,6 +104,19 @@ function getWorkflowTone(status: WorkflowStatus): WorkflowTone {
   };
 }
 
+function getWorkflowCompletionHint(stepId: WorkflowStepId | undefined): string {
+  if (stepId === "resource") {
+    return 'Revisa el recurso completo y presiona "Marcar recurso como listo".';
+  }
+  if (stepId === "challenge") {
+    return 'Escribe tu respuesta y presiona "Guardar respuesta" para marcar este paso.';
+  }
+  if (stepId === "forum") {
+    return "Publica un comentario en el foro para cerrar este paso.";
+  }
+  return "Sigue el paso activo para continuar.";
+}
+
 export default function LabContent({
   currentDay,
   labId,
@@ -531,6 +544,21 @@ export default function LabContent({
     workflowSteps.find((step) => !step.done)?.id ?? workflowSteps[workflowSteps.length - 1]?.id;
   const activeWorkflowStep =
     workflowSteps.find((step) => step.id === activeWorkflowStepId) ?? workflowSteps[0];
+  const workflowTotalCount = workflowSteps.length;
+  const workflowCompletedCount = workflowSteps.filter((step) => step.done).length;
+  const activeWorkflowStepIndex = Math.max(
+    0,
+    workflowSteps.findIndex((step) => step.id === activeWorkflowStep?.id),
+  );
+  const allWorkflowStepsCompleted =
+    workflowTotalCount > 0 && workflowCompletedCount === workflowTotalCount;
+  const nextWorkflowStep = workflowSteps[activeWorkflowStepIndex + 1] ?? null;
+  const activeWorkflowHint = getWorkflowCompletionHint(activeWorkflowStep?.id);
+  const nextWorkflowHint = allWorkflowStepsCompleted
+    ? "Ruta completada. Puedes repasar cualquier sección o avanzar al siguiente día."
+    : nextWorkflowStep
+      ? `Siguiente paso recomendado: ${nextWorkflowStep.label}.`
+      : "Este es el último paso del día.";
 
   const sectionStepMeta = useMemo(() => {
     const meta = new Map<
@@ -682,13 +710,13 @@ export default function LabContent({
       dayNumber: currentDay.day_number,
       completed: allStepsCompleted,
     })
-      .then((ok) => {
-        if (!ok) {
+      .then((result) => {
+        if (!result.ok) {
           setProgressSyncError("No se pudo sincronizar el estado del día.");
           return;
         }
-        setDayCompletionSynced(allStepsCompleted);
-        onDayCompleted?.(currentDay.day_number, allStepsCompleted);
+        setDayCompletionSynced(result.completed);
+        onDayCompleted?.(currentDay.day_number, result.completed);
       })
       .finally(() => {
         progressSyncInFlightRef.current = false;
@@ -1140,12 +1168,27 @@ export default function LabContent({
             <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-[var(--ast-mint)]/90" />
             Ruta del día
           </p>
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            <span className="rounded-full border border-[var(--ast-sky)]/35 bg-[rgba(7,68,168,0.2)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--ast-sky)]">
+              {allWorkflowStepsCompleted
+                ? "Ruta completada"
+                : `Paso ${activeWorkflowStepIndex + 1} de ${workflowTotalCount}`}
+            </span>
+          </div>
           <h2 className="mt-0.5 text-lg font-black tracking-tight text-[#e4efff] md:text-[1.72rem]">
             Ahora: {activeWorkflowStep?.label}
           </h2>
           <p className="mt-0.5 max-w-3xl text-[13px] leading-[1.4] text-[#c6daf8]/92 md:text-sm">
+            <span className="font-semibold text-[#dce9ff]">Objetivo:</span>{" "}
             {activeWorkflowStep?.helperText}
           </p>
+          <div className="mt-2 rounded-md border border-[var(--ast-sky)]/26 bg-[rgba(4,14,36,0.55)] p-2.5 text-[12px] leading-relaxed text-[#c6daf8]">
+            <p>
+              <span className="font-semibold text-[#e3eeff]">Haz esto ahora:</span>{" "}
+              {activeWorkflowHint}
+            </p>
+            <p className="mt-1 text-[#9fb9dc]">{nextWorkflowHint}</p>
+          </div>
         </div>
 
         <div className="min-w-0">
@@ -1167,7 +1210,25 @@ export default function LabContent({
                             : "border-[var(--ast-sky)]/24 bg-[rgba(6,18,43,0.42)] text-[#a9c1e3] hover:border-[var(--ast-sky)]/46 hover:text-[#dce9ff]"
                       }`}
                     >
-                      {index + 1}. {step.label}
+                      <span className="inline-flex items-center gap-1.5">
+                        <span
+                          className={`inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold ${
+                            step.done
+                              ? "bg-[var(--ast-sky)]/18 text-[var(--ast-sky)]"
+                              : isActive
+                                ? "bg-[var(--ast-mint)]/18 text-[var(--ast-mint)]"
+                                : "bg-[rgba(7,30,72,0.7)] text-[#98b0d3]"
+                          }`}
+                        >
+                          {step.done ? "✓" : index + 1}
+                        </span>
+                        <span>{step.label}</span>
+                        {isActive && !step.done && (
+                          <span className="rounded-full border border-[var(--ast-mint)]/35 bg-[rgba(4,164,90,0.12)] px-1.5 py-[1px] text-[9px] font-semibold uppercase tracking-[0.08em] text-[var(--ast-mint)]">
+                            Ahora
+                          </span>
+                        )}
+                      </span>
                     </button>
                   </li>
                 );
@@ -1821,7 +1882,7 @@ async function persistDayCompletion({
   labId: string;
   dayNumber: number;
   completed: boolean;
-}): Promise<boolean> {
+}): Promise<{ ok: boolean; completed: boolean }> {
   try {
     const response = await fetch("/api/progress/complete", {
       method: "POST",
@@ -1833,8 +1894,22 @@ async function persistDayCompletion({
       }),
     });
 
-    return response.ok;
+    let payload: { completed?: boolean } | null = null;
+    try {
+      payload = (await response.json()) as { completed?: boolean };
+    } catch {
+      payload = null;
+    }
+
+    if (!response.ok) {
+      return { ok: false, completed };
+    }
+
+    return {
+      ok: true,
+      completed: typeof payload?.completed === "boolean" ? payload.completed : completed,
+    };
   } catch {
-    return false;
+    return { ok: false, completed };
   }
 }

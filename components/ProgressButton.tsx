@@ -33,14 +33,16 @@ export default function ProgressButton({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ labId, dayNumber, completed: nextCompleted }),
       });
-      const data = (await response.json()) as { error?: string };
+      const data = (await response.json()) as { error?: string; completed?: boolean };
       if (!response.ok) {
         setError(data.error ?? "No se pudo guardar tu progreso");
         return;
       }
 
-      setCompleted(nextCompleted);
-      onProgressChange?.(dayNumber, nextCompleted);
+      const syncedCompleted =
+        typeof data.completed === "boolean" ? data.completed : nextCompleted;
+      setCompleted(syncedCompleted);
+      onProgressChange?.(dayNumber, syncedCompleted);
     } catch {
       setError("No se pudo conectar con el servidor");
     } finally {

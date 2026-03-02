@@ -164,7 +164,7 @@ export default async function Home({
       id="top"
       className="relative min-h-screen overflow-x-hidden bg-[var(--ui-bg)] text-[var(--ui-text)] selection:bg-[var(--ui-primary)]/25"
     >
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_4%_4%,rgba(37,99,235,0.16),transparent_26%),radial-gradient(circle_at_94%_8%,rgba(249,115,22,0.12),transparent_28%),linear-gradient(180deg,rgba(148,163,184,0.05),transparent_55%)]" />
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_6%_6%,rgba(77,163,255,0.2),transparent_28%),radial-gradient(circle_at_92%_10%,rgba(0,201,139,0.12),transparent_30%),linear-gradient(180deg,rgba(10,26,60,0.32),transparent_56%)]" />
 
       <nav className="sticky top-4 z-40 mx-4 mt-4 flex items-center justify-between rounded-2xl border border-[var(--ui-border)]/80 bg-[rgba(5,14,34,0.86)] px-4 py-3 shadow-[0_12px_28px_rgba(2,7,22,0.45)] backdrop-blur md:mx-auto md:max-w-7xl md:px-6">
         <Image
@@ -202,6 +202,10 @@ export default async function Home({
       </nav>
 
       <header className="relative mx-auto grid max-w-7xl gap-8 px-4 pb-12 pt-10 md:px-6 md:pb-16 md:pt-12 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] lg:items-center">
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(circle_at_72%_24%,rgba(77,163,255,0.16),transparent_34%),radial-gradient(circle_at_90%_34%,rgba(0,201,139,0.1),transparent_30%)]"
+        />
         <div>
           <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--ui-secondary)]/90">
             Plataforma de aprendizaje aplicada
@@ -239,82 +243,63 @@ export default async function Home({
         </div>
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-6 sm:auto-rows-[108px]">
-          <div className="relative overflow-hidden rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface)] p-4 shadow-[0_20px_40px_rgba(2,7,22,0.5)] sm:col-span-6 sm:row-span-2">
-            <div className="pointer-events-none absolute -right-8 -top-8 h-28 w-28 rounded-full bg-[var(--ui-primary)]/10 blur-2xl" />
-            <div className="pointer-events-none absolute -bottom-10 left-8 h-28 w-28 rounded-full bg-[var(--ui-accent)]/10 blur-2xl" />
-
-            <div className="relative flex h-full flex-col justify-between">
+          <div className="rounded-2xl bg-[#12305f] p-4 shadow-[0_16px_32px_rgba(2,8,22,0.52)] sm:col-span-6 sm:row-span-2">
+            <div className="flex h-full flex-col justify-between">
               <div className="space-y-3">
-                <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--ui-secondary)]/82">
+                <p className="text-[11px] uppercase tracking-[0.18em] text-[#bad4f6]">
                   Labs activos
                 </p>
                 <div className="flex items-end gap-3">
-                  <p className="text-5xl font-black leading-none text-[var(--ui-text)]">
-                    {totalLabs}
-                  </p>
-                  <p className="pb-1 text-sm text-[var(--ui-secondary)]/82">
-                    catálogo vivo y en expansión
-                  </p>
+                  <p className="text-5xl font-black leading-none text-[#eef5ff]">{totalLabs}</p>
+                  <p className="pb-1 text-sm text-[#afc7e8]">catálogo vivo y en expansión</p>
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-2 border-t border-[var(--ui-border)] pt-3">
-                <div className="min-w-0">
-                  <p className="text-[10px] uppercase tracking-[0.14em] text-[var(--ui-secondary)]/82">
+              <div className="grid grid-cols-3 gap-2 pt-3">
+                <div className="min-w-0 rounded-lg bg-[#1a3f74] px-2.5 py-1.5">
+                  <p className="text-[10px] uppercase tracking-[0.14em] text-[#b9d3f4]">
                     Día 1 gratis
                   </p>
-                  <p className="mt-1 text-2xl font-black leading-none text-[var(--ui-text)]">
-                    {totalLabs}
-                  </p>
+                  <p className="mt-1 text-2xl font-black leading-none text-[#eef5ff]">{totalLabs}</p>
                 </div>
-                <div className="min-w-0 border-l border-[var(--ui-border)] pl-3">
-                  <p className="text-[10px] uppercase tracking-[0.14em] text-[var(--ui-secondary)]/82">
+                <div className="min-w-0 rounded-lg bg-[#173a69] px-2.5 py-1.5">
+                  <p className="text-[10px] uppercase tracking-[0.14em] text-[#b9d3f4]">
                     Rutas TOP
                   </p>
-                  <p className="mt-1 text-2xl font-black leading-none text-[var(--ui-text)]">
-                    {topCount}
-                  </p>
+                  <p className="mt-1 text-2xl font-black leading-none text-[#e5f1ff]">{topCount}</p>
                 </div>
-                <div className="min-w-0 border-l border-[var(--ui-border)] pl-3">
-                  <p className="text-[10px] uppercase tracking-[0.14em] text-[var(--ui-secondary)]/82">
+                <div className="min-w-0 rounded-lg bg-[#114353] px-2.5 py-1.5">
+                  <p className="text-[10px] uppercase tracking-[0.14em] text-[#b9d3f4]">
                     Nuevos
                   </p>
-                  <p className="mt-1 text-2xl font-black leading-none text-[var(--ui-text)]">
-                    {newCount}
-                  </p>
+                  <p className="mt-1 text-2xl font-black leading-none text-[#e2fff4]">{newCount}</p>
                 </div>
               </div>
             </div>
           </div>
 
-          <div className="relative flex h-full flex-col justify-between overflow-hidden rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface)] px-4 py-3 sm:col-span-3">
-            <p className="text-[11px] uppercase tracking-[0.16em] text-[var(--ui-secondary)]/82">
-              Formato
-            </p>
+          <div className="rounded-2xl bg-[#102a57] px-4 py-3 shadow-[0_10px_20px_rgba(2,8,22,0.42)] sm:col-span-3">
+            <p className="text-[11px] uppercase tracking-[0.16em] text-[#bcd6f8]">Formato</p>
             <div className="mt-2">
-              <p className="text-lg font-semibold text-[var(--ui-text)]">5 días por ruta</p>
-              <p className="text-xs text-[var(--ui-secondary)]/82">micro‑bloques accionables</p>
+              <p className="text-lg font-semibold text-[#eef5ff]">5 días por ruta</p>
+              <p className="text-xs text-[#a9c2e6]">micro‑bloques accionables</p>
             </div>
           </div>
 
-          <div className="relative flex h-full flex-col justify-between overflow-hidden rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface)] px-4 py-3 sm:col-span-3">
-            <p className="text-[11px] uppercase tracking-[0.16em] text-[var(--ui-secondary)]/82">
-              Comunidad
-            </p>
+          <div className="rounded-2xl bg-[#0f3147] px-4 py-3 shadow-[0_10px_20px_rgba(2,8,22,0.42)] sm:col-span-3">
+            <p className="text-[11px] uppercase tracking-[0.16em] text-[#bcd6f8]">Comunidad</p>
             <div className="mt-2">
-              <p className="text-lg font-semibold text-[var(--ui-text)]">Retos + foro</p>
-              <p className="text-xs text-[var(--ui-secondary)]/82">aprendizaje colaborativo</p>
+              <p className="text-lg font-semibold text-[#eef5ff]">Retos + foro</p>
+              <p className="text-xs text-[#a9c2e6]">aprendizaje colaborativo</p>
             </div>
           </div>
 
-          <div className="rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface)] px-4 py-3 sm:col-span-6">
-            <p className="text-[11px] uppercase tracking-[0.16em] text-[var(--ui-secondary)]/82">
-              Acceso inicial
-            </p>
-            <p className="mt-2 text-lg font-semibold text-[var(--ui-text)]">
+          <div className="rounded-2xl bg-[#173d67] px-4 py-3 shadow-[0_10px_20px_rgba(2,8,22,0.42)] sm:col-span-6">
+            <p className="text-[11px] uppercase tracking-[0.16em] text-[#bcd6f8]">Acceso inicial</p>
+            <p className="mt-2 text-lg font-semibold text-[#eef5ff]">
               Previsualización del Día 1 sin costo
             </p>
-            <p className="text-xs text-[var(--ui-secondary)]/82">
+            <p className="text-xs text-[#a9c2e6]">
               prueba el contenido antes de desbloquear la ruta completa
             </p>
           </div>

@@ -61,7 +61,7 @@ export async function POST(request: Request) {
     );
   }
 
-  if (dayNumber > 1) {
+  if (completed && dayNumber > 1) {
     const { data: previousDayProgress } = await supabase
       .from("progress")
       .select("id")
@@ -98,8 +98,12 @@ export async function POST(request: Request) {
 
     if (nextDayProgress) {
       return NextResponse.json(
-        { error: "No puedes marcar este día como pendiente si ya avanzaste al siguiente." },
-        { status: 409 },
+        {
+          ok: true,
+          completed: true,
+          lockedByNextDay: true,
+          message: "Este día se mantiene como listo porque ya avanzaste al siguiente.",
+        },
       );
     }
 
