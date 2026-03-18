@@ -257,37 +257,48 @@ export default function CartCheckoutPanel({ labs }: CartCheckoutPanelProps) {
     }
   };
 
-  return (
-    <section className="space-y-4 rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface)] p-5 shadow-[0_16px_30px_rgba(1,7,22,0.45)] md:p-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="font-[family-name:var(--font-space-grotesk)] text-xl font-bold text-[var(--ui-text)] md:text-2xl">
-            Carrito
-          </h2>
-          <p className="text-xs text-[var(--ui-muted)] md:text-sm">
-            Compra varios labs en un solo pago.
-          </p>
-        </div>
-        <div className="rounded-full border border-[var(--ui-border)] bg-[var(--ui-surface-soft)] px-3 py-1 text-xs text-[var(--ui-text)]">
-          {selectedLabs.length} {selectedLabs.length === 1 ? "lab" : "labs"}
-        </div>
-      </div>
+  const couponApplied = messageTone === "success" && pricing.discountCents > 0;
 
-      {selectedLabs.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-[var(--ui-border)] bg-[var(--ui-surface-soft)] px-4 py-3 text-sm text-[var(--ui-muted)]">
-          Tu carrito está vacío. Agrega labs desde las tarjetas bloqueadas.
+  return (
+    <section className="space-y-4">
+      {/* Items in cart */}
+      <div className="rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface)] shadow-[0_12px_28px_rgba(1,7,22,0.4)]">
+        <div className="flex items-center justify-between border-b border-[var(--ui-border)] px-5 py-4">
+          <div>
+            <h2 className="font-[family-name:var(--font-space-grotesk)] text-xl font-bold text-[var(--ui-text)]">
+              Tu carrito
+            </h2>
+            <p className="text-xs text-[var(--ui-muted)]">
+              {selectedLabs.length === 0
+                ? "Sin labs seleccionados"
+                : `${selectedLabs.length} ${selectedLabs.length === 1 ? "lab" : "labs"} seleccionado${selectedLabs.length !== 1 ? "s" : ""}`}
+            </p>
+          </div>
+          {selectedLabs.length > 0 && (
+            <span className="rounded-full border border-[var(--ui-border)] bg-[var(--ui-surface-soft)] px-3 py-1 text-sm font-bold text-[var(--ui-text)]">
+              {selectedLabs.length}
+            </span>
+          )}
         </div>
-      ) : (
-        <>
-          <div className="space-y-2 rounded-lg border border-[var(--ui-border)] bg-[var(--ui-surface-soft)] p-3">
+
+        {selectedLabs.length === 0 ? (
+          <div className="px-5 py-10 text-center">
+            <p className="text-4xl">🛒</p>
+            <p className="mt-3 font-semibold text-[var(--ui-text)]">Carrito vacío</p>
+            <p className="mt-1 text-sm text-[var(--ui-muted)]">
+              Agrega labs desde el catálogo para comprarlos aquí.
+            </p>
+          </div>
+        ) : (
+          <div className="divide-y divide-[var(--ui-border)]">
             {selectedLines.map((line) => (
               <div
                 key={line.id}
-                className="flex items-center justify-between gap-3 rounded-md border border-[var(--ui-border)] bg-[rgba(2,9,24,0.7)] px-3 py-2"
+                className="flex items-center gap-4 px-5 py-4"
               >
-                <div>
-                  <p className="text-sm font-semibold text-[var(--ui-text)]">{line.title}</p>
-                  <p className="text-xs text-[var(--ui-muted)]">
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold text-[var(--ui-text)]">{line.title}</p>
+                  <p className="mt-0.5 text-sm text-[var(--ui-muted)]">
                     {line.amountCents == null
                       ? "Sin precio en esta moneda"
                       : formatMoney(line.amountCents, currency)}
@@ -295,93 +306,131 @@ export default function CartCheckoutPanel({ labs }: CartCheckoutPanelProps) {
                 </div>
                 <button
                   type="button"
-                  onClick={() => {
-                    toggleCartLab(line.id);
-                  }}
-                  className="rounded-md border border-[var(--ast-coral)]/45 px-2 py-1 text-xs text-[var(--ast-yellow)] transition hover:bg-[rgba(246,109,58,0.18)]"
+                  onClick={() => toggleCartLab(line.id)}
+                  aria-label={`Quitar ${line.title} del carrito`}
+                  className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg border border-[var(--ui-border)] text-[var(--ui-muted)] transition hover:border-red-400/40 hover:bg-[rgba(200,40,40,0.1)] hover:text-red-300 active:scale-95"
                 >
-                  Quitar
+                  ✕
                 </button>
               </div>
             ))}
           </div>
+        )}
+      </div>
 
-          <div className="flex flex-wrap gap-2">
-            <select
-              value={currency}
-              onChange={(event) => setCurrency(event.target.value as Currency)}
-              className="rounded-lg border border-[var(--ui-border)] bg-[rgba(2,9,24,0.7)] px-3 py-2 text-xs text-[var(--ui-text)]"
-            >
-              <option value="USD" disabled={!availableCurrencies.includes("USD")}>
-                USD
-              </option>
-              <option value="MXN" disabled={!availableCurrencies.includes("MXN")}>
-                MXN
-              </option>
-            </select>
-            <input
-              type="text"
-              value={coupon}
-              onChange={(event) => handleCouponChange(event.target.value)}
-              placeholder="Cupón de descuento"
-              className="min-w-[180px] flex-1 rounded-lg border border-[var(--ui-border)] bg-[rgba(2,9,24,0.7)] px-3 py-2 text-xs text-[var(--ui-text)] placeholder:text-[var(--ui-muted)]"
-            />
+      {selectedLabs.length > 0 && (
+        <>
+          {/* Currency + coupon */}
+          <div className="rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface)] p-5 shadow-[0_8px_20px_rgba(1,7,22,0.3)]">
+            <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-[var(--ui-muted)]">
+              Moneda
+            </p>
+            <div className="flex gap-2">
+              {(["USD", "MXN"] as Currency[]).map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => availableCurrencies.includes(c) && setCurrency(c)}
+                  disabled={!availableCurrencies.includes(c)}
+                  className={`rounded-lg border px-4 py-2 text-sm font-semibold transition-all duration-150 ${
+                    currency === c
+                      ? "border-[var(--ui-primary)]/65 bg-[rgba(10,86,198,0.2)] text-[var(--ast-sky)]"
+                      : availableCurrencies.includes(c)
+                        ? "border-[var(--ui-border)] bg-transparent text-[var(--ui-muted)] hover:border-[var(--ui-border)]/80 hover:text-[var(--ui-text)]"
+                        : "border-[var(--ui-border)]/40 bg-transparent text-[var(--ui-muted)]/40 cursor-not-allowed"
+                  }`}
+                >
+                  {c}
+                </button>
+              ))}
+            </div>
+
+            <p className="mb-2 mt-5 text-xs font-semibold uppercase tracking-wider text-[var(--ui-muted)]">
+              Cupón de descuento
+            </p>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={coupon}
+                onChange={(event) => handleCouponChange(event.target.value)}
+                placeholder="Escribe tu cupón..."
+                className={`flex-1 rounded-lg border bg-[var(--ui-surface-soft)] px-3 py-2 text-sm text-[var(--ui-text)] placeholder:text-[var(--ui-muted)] outline-none transition focus:border-[var(--ui-primary)] ${
+                  couponApplied
+                    ? "border-[var(--ui-success)]/50"
+                    : "border-[var(--ui-border)]"
+                }`}
+              />
+              <button
+                type="button"
+                onClick={() => void applyCoupon()}
+                disabled={isApplyingCoupon || !coupon.trim()}
+                className="rounded-lg border border-[var(--ui-border)] bg-[var(--ui-surface-soft)] px-4 py-2 text-sm font-semibold text-[var(--ui-text)] transition hover:border-[var(--ui-primary)]/50 hover:text-[var(--ast-sky)] disabled:opacity-50 active:scale-95"
+              >
+                {isApplyingCoupon ? "..." : "Aplicar"}
+              </button>
+            </div>
+            {message && (
+              <p className={`mt-2 text-xs font-medium ${
+                messageTone === "success"
+                  ? "text-[var(--ui-success)]"
+                  : messageTone === "error"
+                    ? "text-red-300"
+                    : "text-[var(--ui-muted)]"
+              }`}>
+                {message}
+              </p>
+            )}
+          </div>
+
+          {/* Pricing summary + CTA */}
+          <div className="rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface)] p-5 shadow-[0_8px_20px_rgba(1,7,22,0.3)]">
+            <div className={`space-y-2 transition-all ${amountPulse ? "animate-pulse" : ""}`}>
+              <div className="flex items-center justify-between text-sm text-[var(--ui-muted)]">
+                <span>Subtotal</span>
+                <span>{formatMoney(pricing.originalAmountCents, currency)}</span>
+              </div>
+              {pricing.discountCents > 0 && (
+                <div className="flex items-center justify-between text-sm font-semibold text-[var(--ui-success)]">
+                  <span>Descuento cupón</span>
+                  <span>−{formatMoney(pricing.discountCents, currency)}</span>
+                </div>
+              )}
+              <div className="flex items-center justify-between border-t border-[var(--ui-border)] pt-2 font-bold text-[var(--ui-text)]">
+                <span>Total</span>
+                <span className="text-lg">{formatMoney(pricing.finalAmountCents, currency)}</span>
+              </div>
+            </div>
+
+            {missingPriceLabs.length > 0 && (
+              <p className="mt-3 rounded-lg border border-[rgba(240,120,60,0.3)] bg-[rgba(200,60,20,0.1)] px-3 py-2 text-xs text-[#f5b090]">
+                Algunos labs no tienen precio en {currency}. Cambia de moneda.
+              </p>
+            )}
+
             <button
               type="button"
-              onClick={() => void applyCoupon()}
-              disabled={isApplyingCoupon}
-              className="rounded-lg border border-[var(--ui-border)] bg-[rgba(2,9,24,0.7)] px-3 py-2 text-xs font-semibold text-[var(--ui-text)] transition hover:border-[var(--ui-secondary)] hover:bg-[var(--ui-surface-soft)] disabled:opacity-60"
+              disabled={isLoading || availableCurrencies.length === 0 || missingPriceLabs.length > 0}
+              onClick={() => void startCheckout()}
+              className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--ui-accent)] py-3.5 text-base font-bold text-[var(--ast-black)] transition hover:bg-[var(--ast-forest)] disabled:opacity-60 active:scale-[0.99]"
             >
-              {isApplyingCoupon ? "Aplicando..." : "Aplicar"}
+              {isLoading ? (
+                <>
+                  <span className="animate-spin">⟳</span>
+                  Redirigiendo al pago...
+                </>
+              ) : pricing.freeAccess ? (
+                "Desbloquear gratis"
+              ) : (
+                <>
+                  Pagar {formatMoney(pricing.finalAmountCents, currency)}
+                  <span aria-hidden="true">→</span>
+                </>
+              )}
             </button>
+            <p className="mt-2.5 text-center text-[11px] text-[var(--ui-muted)]">
+              Procesado de forma segura por Stripe
+            </p>
           </div>
-
-          <div
-            className={`space-y-1 rounded-lg border border-[var(--ui-border)] bg-[var(--ui-surface-soft)] px-3 py-2 text-xs ${amountPulse ? "animate-pulse" : ""}`}
-          >
-            <div className="flex items-center justify-between text-[var(--ui-muted)]">
-              <span>Precio base</span>
-              <span>{formatMoney(pricing.originalAmountCents, currency)}</span>
-            </div>
-            {pricing.discountCents > 0 && (
-              <div className="flex items-center justify-between text-[var(--ui-success)]">
-                <span>Descuento</span>
-                <span>-{formatMoney(pricing.discountCents, currency)}</span>
-              </div>
-            )}
-            <div className="flex items-center justify-between border-t border-[var(--ui-border)] pt-1 font-bold text-[var(--ui-text)]">
-              <span>Total</span>
-              <span>{formatMoney(pricing.finalAmountCents, currency)}</span>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            disabled={isLoading || availableCurrencies.length === 0 || missingPriceLabs.length > 0}
-            onClick={() => void startCheckout()}
-            className="w-full rounded-lg bg-[var(--ui-accent)] py-2 text-sm font-semibold text-[var(--ast-black)] transition hover:bg-[var(--ast-forest)] disabled:opacity-70"
-          >
-            {isLoading
-              ? "Redirigiendo a pago..."
-              : pricing.freeAccess
-                ? "Desbloquear carrito gratis"
-                : `Pagar carrito (${formatMoney(pricing.finalAmountCents, currency)})`}
-          </button>
-
-          <p
-            className={`text-[11px] ${
-              messageTone === "success"
-                ? "text-[var(--ui-success)]"
-                : messageTone === "error"
-                  ? "text-[var(--ui-accent)]"
-                  : "text-[var(--ui-muted)]"
-            }`}
-          >
-            {message ||
-              (missingPriceLabs.length > 0
-                ? "Elige labs que compartan la misma moneda."
-                : "Tip: aplica un cupón antes de pagar.")}
-          </p>
         </>
       )}
     </section>

@@ -141,7 +141,6 @@ export default function LabWorkspace({
         }
       }
 
-      // Force refresh when a day changes to completed so next day unlocks immediately.
       router.refresh();
     }
   };
@@ -167,70 +166,89 @@ export default function LabWorkspace({
   return (
     <div className="space-y-6">
       {currentDay ? (
-        <>
-          <LabContent
-            key={currentDay.id}
-            currentDay={currentDay}
-            labId={labId}
-            initialCompleted={completedDays.includes(currentDay.day_number)}
-            onDayCompleted={handleDayProgressChange}
-            previewMode={previewMode}
-            labTitle={labTitle}
-            labPosterUrl={labPosterUrl}
-          />
-        </>
+        <LabContent
+          key={currentDay.id}
+          currentDay={currentDay}
+          labId={labId}
+          initialCompleted={completedDays.includes(currentDay.day_number)}
+          onDayCompleted={handleDayProgressChange}
+          previewMode={previewMode}
+          labTitle={labTitle}
+          labPosterUrl={labPosterUrl}
+        />
       ) : (
         <div className="flex h-64 items-center justify-center rounded-xl border-2 border-dashed border-[var(--ast-sky)]/28 text-[#8fa6cc]">
           Selecciona un día para comenzar.
         </div>
       )}
 
-      {showBackToTop && (
-        <button
-          type="button"
-          onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
-          className="fixed bottom-5 right-5 z-40 rounded-full border border-[var(--ast-sky)]/50 bg-[rgba(1,25,99,0.82)] px-4 py-2 text-xs font-bold uppercase tracking-wider text-[var(--ast-sky)] shadow-lg transition hover:border-[var(--ast-mint)] hover:text-[var(--ast-mint)]"
-        >
-          Arriba
-        </button>
-      )}
+      {/* Back to top FAB */}
+      <button
+        type="button"
+        onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+        aria-label="Volver arriba"
+        className={`fixed bottom-6 right-6 z-40 flex h-11 w-11 items-center justify-center rounded-full border border-[var(--ast-sky)]/40 bg-[rgba(2,14,48,0.88)] text-[var(--ast-sky)] shadow-[0_8px_24px_rgba(1,8,28,0.5)] backdrop-blur-sm transition-all duration-300 hover:border-[var(--ast-mint)]/60 hover:text-[var(--ast-mint)] hover:shadow-[0_0_18px_rgba(4,164,90,0.2)] active:scale-95 ${
+          showBackToTop ? "translate-y-0 opacity-100" : "translate-y-4 opacity-0 pointer-events-none"
+        }`}
+      >
+        <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M10 15V5M5 10l5-5 5 5" />
+        </svg>
+      </button>
 
+      {/* Day completion modal */}
       {completionPrompt && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(2,8,24,0.72)] px-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(1,6,18,0.78)] px-4 backdrop-blur-sm"
           role="dialog"
           aria-modal="true"
           aria-labelledby="day-complete-title"
         >
-          <div className="w-full max-w-md rounded-2xl border border-[var(--ast-sky)]/35 bg-[linear-gradient(160deg,rgba(8,19,46,0.96),rgba(4,11,29,0.96))] p-5 shadow-[0_18px_50px_rgba(2,8,22,0.56)]">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#8fccff]">
-              Día completado
-            </p>
-            <h3
-              id="day-complete-title"
-              className="mt-1 text-xl font-black tracking-tight text-[#e5f2ff]"
-            >
-              Excelente trabajo en el Día {completionPrompt.currentDayNumber}
-            </h3>
-            <p className="mt-2 text-sm leading-relaxed text-[#c8dbf6]">
-              ¿Quieres ir al Día {completionPrompt.nextDayNumber} ahora o prefieres continuar
-              hasta mañana?
-            </p>
-            <div className="mt-4 flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={handleGoToNextDay}
-                className="rounded-md border border-[#4da3ff]/58 bg-[rgba(77,163,255,0.18)] px-3 py-2 text-xs font-semibold text-[#9fd3ff] transition hover:border-[#4da3ff]/78 hover:bg-[rgba(77,163,255,0.24)]"
-              >
-                Ir al Día {completionPrompt.nextDayNumber}
-              </button>
-              <button
-                type="button"
-                onClick={handleContinueTomorrow}
-                className="rounded-md border border-[var(--ast-mint)]/54 bg-[rgba(4,164,90,0.16)] px-3 py-2 text-xs font-semibold text-[#98efc3] transition hover:border-[var(--ast-mint)]/75 hover:bg-[rgba(4,164,90,0.24)]"
-              >
-                Prefiero hasta mañana
-              </button>
+          <div className="w-full max-w-md overflow-hidden rounded-2xl border border-[var(--ast-mint)]/30 bg-[linear-gradient(160deg,rgba(3,22,44,0.98),rgba(2,12,28,0.98))] shadow-[0_24px_60px_rgba(1,6,18,0.7),0_0_40px_rgba(4,164,90,0.1)]">
+            {/* Green header strip */}
+            <div className="border-b border-[var(--ast-mint)]/20 bg-[rgba(4,164,90,0.1)] px-5 py-4">
+              <div className="flex items-center gap-3">
+                <span className="flex h-9 w-9 items-center justify-center rounded-full border border-[var(--ast-mint)]/45 bg-[rgba(4,164,90,0.22)] text-lg text-[var(--ast-mint)]">
+                  ✓
+                </span>
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#6ee7b7]">
+                    Día completado
+                  </p>
+                  <h3
+                    id="day-complete-title"
+                    className="text-lg font-black tracking-tight text-[#d9fff0]"
+                  >
+                    ¡Día {completionPrompt.currentDayNumber} listo!
+                  </h3>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-5">
+              <p className="text-sm leading-relaxed text-[#c0d8f5]">
+                Completaste el Día {completionPrompt.currentDayNumber}. El Día{" "}
+                {completionPrompt.nextDayNumber} ya está disponible.
+                ¿Avanzas ahora o prefieres retomar mañana?
+              </p>
+
+              <div className="mt-5 flex flex-col gap-2">
+                <button
+                  type="button"
+                  onClick={handleGoToNextDay}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-[var(--ui-primary)] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[var(--ast-atlantic)] active:scale-[0.99]"
+                >
+                  Ir al Día {completionPrompt.nextDayNumber}
+                  <span aria-hidden="true">→</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleContinueTomorrow}
+                  className="inline-flex w-full items-center justify-center rounded-lg border border-[var(--ast-sky)]/30 bg-transparent px-4 py-2.5 text-sm font-semibold text-[#a0bfe0] transition hover:border-[var(--ast-sky)]/50 hover:text-[#d0e8ff] active:scale-[0.99]"
+                >
+                  Continuar mañana
+                </button>
+              </div>
             </div>
           </div>
         </div>

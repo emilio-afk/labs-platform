@@ -29,12 +29,13 @@ export default function AddToCartButton({ labId }: AddToCartButtonProps) {
         const next = toggleCartLab(labId);
         setInCart(next.includes(labId));
       }}
-      className={`w-full rounded-lg py-2 text-sm font-semibold transition ${
+      className={`inline-flex w-full items-center justify-center gap-2 rounded-lg border py-2.5 text-sm font-semibold transition-all duration-200 active:scale-[0.99] ${
         inCart
-          ? "border border-[var(--ui-border)] bg-[var(--ui-surface-soft)] text-[var(--ui-text)] hover:bg-[rgba(185,214,254,0.14)]"
-          : "border border-[var(--ast-mint)]/55 bg-[rgba(4,164,90,0.14)] text-[var(--ast-mint)] hover:bg-[rgba(4,164,90,0.22)]"
+          ? "border-[var(--ui-border)] bg-[var(--ui-surface-soft)] text-[var(--ui-muted)] hover:border-red-400/30 hover:bg-[rgba(200,40,40,0.08)] hover:text-red-300"
+          : "border-[var(--ast-mint)]/52 bg-[rgba(4,164,90,0.13)] text-[var(--ast-mint)] hover:bg-[rgba(4,164,90,0.22)]"
       }`}
     >
+      <span className="text-base leading-none">{inCart ? "−" : "+"}</span>
       {inCart ? "Quitar del carrito" : "Agregar al carrito"}
     </button>
   );

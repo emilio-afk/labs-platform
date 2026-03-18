@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import { redirect } from "next/navigation";
 import { createClient } from "@/utils/supabase/server";
 import { createAdminClient } from "@/utils/supabase/admin";
@@ -96,21 +97,31 @@ export default async function CartPage({
 
   return (
     <div className="min-h-screen bg-[var(--ui-bg)] text-[var(--ui-text)]">
-      <div className="border-b border-[var(--ui-border)] bg-[rgba(5,14,34,0.9)] px-6 py-5">
-        <div className="mx-auto flex max-w-3xl items-center justify-between">
-          <div>
-            <p className="text-xs uppercase tracking-wider text-[var(--ui-muted)]">
-              Checkout
-            </p>
-            <h1 className="font-[family-name:var(--font-space-grotesk)] text-2xl font-bold">
+      <div className="border-b border-[var(--ui-border)] bg-[rgba(5,14,34,0.92)] px-6 py-4 backdrop-blur-sm">
+        <div className="mx-auto flex max-w-3xl items-center justify-between gap-4">
+          <Link href="/">
+            <Image
+              src="/logo-astrolab-light.png"
+              alt="Astrolab"
+              width={140}
+              height={26}
+              className="h-5 w-auto opacity-90"
+            />
+          </Link>
+          <div className="hidden items-center gap-2 sm:flex">
+            <span className="rounded-full border border-[var(--ui-primary)]/50 bg-[rgba(10,86,198,0.18)] px-3 py-1 text-[11px] font-semibold text-[var(--ast-sky)]">
               Carrito
-            </h1>
+            </span>
+            <span className="text-[var(--ui-border)]">→</span>
+            <span className="text-[11px] text-[var(--ui-muted)]">Pago</span>
+            <span className="text-[var(--ui-border)]">→</span>
+            <span className="text-[11px] text-[var(--ui-muted)]">Acceso</span>
           </div>
           <Link
             href="/"
-            className="rounded-full border border-[var(--ui-border)] bg-[var(--ui-surface-soft)] px-4 py-2 text-sm text-[var(--ui-text)] transition hover:border-[var(--ui-secondary)] hover:bg-[rgba(185,214,254,0.12)]"
+            className="rounded-full border border-[var(--ui-border)] bg-transparent px-3 py-1.5 text-xs font-medium text-[var(--ui-muted)] transition hover:border-[var(--ui-border)]/80 hover:text-[var(--ui-text)]"
           >
-            Volver a labs
+            ← Labs
           </Link>
         </div>
       </div>

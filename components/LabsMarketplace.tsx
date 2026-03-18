@@ -79,21 +79,17 @@ export default function LabsMarketplace({
 
   const canUseCart = isAuthenticated && !isAdmin;
 
+  const hasActiveFilters = query !== "" || selectedTag !== "ALL" || accessFilter !== "all" || sortMode !== "featured";
+
   return (
     <section className="space-y-4">
-      <div className="z-20 rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface)] p-2 shadow-[0_10px_24px_rgba(2,7,22,0.4)]">
-        <div className="flex flex-col gap-1.5 lg:flex-row lg:items-center">
-          <div className="relative w-full lg:w-[300px] xl:w-[340px]">
+      {/* Filter bar */}
+      <div className="rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface)] p-3 shadow-[0_10px_24px_rgba(2,7,22,0.4)]">
+        {/* Row 1: search + sort + count */}
+        <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
+          <div className="relative flex-1 lg:max-w-[340px]">
             <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--ui-muted)]">
-              <svg
-                viewBox="0 0 24 24"
-                className="h-4 w-4"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="11" cy="11" r="8" />
                 <path d="m21 21-4.3-4.3" />
               </svg>
@@ -103,82 +99,100 @@ export default function LabsMarketplace({
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Buscar labs, temas o etiquetas..."
-              className="w-full rounded-md border border-[var(--ui-border)] bg-[var(--ui-surface-soft)] py-1.5 pl-9 pr-8 text-[13px] text-[var(--ui-text)] placeholder:text-[var(--ui-muted)] outline-none transition focus:border-[var(--ui-primary)]"
+              className="w-full rounded-lg border border-[var(--ui-border)] bg-[var(--ui-surface-soft)] py-2 pl-9 pr-8 text-[13px] text-[var(--ui-text)] placeholder:text-[var(--ui-muted)] outline-none transition focus:border-[var(--ui-primary)]"
             />
             {query && (
               <button
                 type="button"
                 onClick={() => setQuery("")}
-                className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-md px-1.5 py-0.5 text-[11px] text-[var(--ui-muted)] hover:bg-[rgba(185,214,254,0.12)]"
+                className="absolute right-2 top-1/2 -translate-y-1/2 flex h-5 w-5 items-center justify-center rounded text-[var(--ui-muted)] hover:text-[var(--ui-text)]"
               >
                 ×
               </button>
             )}
           </div>
 
-          {showAccessFilter && (
+          <div className="flex flex-wrap items-center gap-2 lg:ml-auto">
+            {showAccessFilter && (
+              <select
+                value={accessFilter}
+                onChange={(event) => setAccessFilter(event.target.value as AccessFilter)}
+                className="rounded-lg border border-[var(--ui-border)] bg-[var(--ui-surface-soft)] px-2.5 py-2 text-[13px] text-[var(--ui-text)] outline-none transition focus:border-[var(--ui-primary)]"
+              >
+                <option value="all">Acceso: Todos</option>
+                <option value="active">Con acceso</option>
+                <option value="blocked">Sin acceso</option>
+              </select>
+            )}
+
             <select
-              value={accessFilter}
-              onChange={(event) => setAccessFilter(event.target.value as AccessFilter)}
-              className="w-full rounded-md border border-[var(--ui-border)] bg-[var(--ui-surface-soft)] px-2.5 py-1.5 text-[13px] text-[var(--ui-text)] outline-none transition focus:border-[var(--ui-primary)] lg:w-[145px]"
-              disabled={!isAuthenticated}
+              value={sortMode}
+              onChange={(event) => setSortMode(event.target.value as SortMode)}
+              className="rounded-lg border border-[var(--ui-border)] bg-[var(--ui-surface-soft)] px-2.5 py-2 text-[13px] text-[var(--ui-text)] outline-none transition focus:border-[var(--ui-primary)]"
             >
-              <option value="all">Acceso: Todos</option>
-              <option value="active">Con acceso</option>
-              <option value="blocked">Bloqueados</option>
+              <option value="featured">Destacados</option>
+              <option value="newest">Más nuevos</option>
+              <option value="price_asc">Precio ↑</option>
+              <option value="price_desc">Precio ↓</option>
+              <option value="title">Título A-Z</option>
             </select>
-          )}
 
-          <select
-            value={selectedTag}
-            onChange={(event) => setSelectedTag(event.target.value)}
-            className="w-full rounded-md border border-[var(--ui-border)] bg-[var(--ui-surface-soft)] px-2.5 py-1.5 text-[13px] text-[var(--ui-text)] outline-none transition focus:border-[var(--ui-primary)] lg:w-[160px]"
-          >
-            <option value="ALL">Etiqueta: Todas</option>
-            {tags.map((tag) => (
-              <option key={tag} value={tag}>
-                Etiqueta: {tag}
-              </option>
-            ))}
-          </select>
+            {hasActiveFilters && (
+              <button
+                type="button"
+                onClick={() => {
+                  setQuery("");
+                  setSelectedTag("ALL");
+                  setAccessFilter("all");
+                  setSortMode("featured");
+                }}
+                className="rounded-lg border border-[var(--ui-border)] bg-transparent px-3 py-2 text-[13px] text-[var(--ui-muted)] transition hover:border-[var(--ui-primary)]/50 hover:text-[var(--ui-text)]"
+              >
+                Limpiar
+              </button>
+            )}
 
-          <select
-            value={sortMode}
-            onChange={(event) => setSortMode(event.target.value as SortMode)}
-            className="w-full rounded-md border border-[var(--ui-border)] bg-[var(--ui-surface-soft)] px-2.5 py-1.5 text-[13px] text-[var(--ui-text)] outline-none transition focus:border-[var(--ui-primary)] lg:w-[130px]"
-          >
-            <option value="featured">Destacados</option>
-            <option value="newest">Más nuevos</option>
-            <option value="price_asc">Precio ↑</option>
-            <option value="price_desc">Precio ↓</option>
-            <option value="title">Título A-Z</option>
-          </select>
-
-          <button
-            type="button"
-            onClick={() => {
-              setQuery("");
-              setSelectedTag("ALL");
-              setAccessFilter("all");
-              setSortMode("featured");
-            }}
-            className="rounded-md border border-[var(--ui-border)] bg-[rgba(5,14,34,0.86)] px-2.5 py-1.5 text-[13px] font-semibold text-[var(--ui-text)] hover:bg-[rgba(185,214,254,0.12)] lg:w-[82px]"
-          >
-            Limpiar
-          </button>
-
-          <span className="text-xs text-[var(--ui-muted)] lg:ml-auto">
-            {filteredLabs.length} {filteredLabs.length === 1 ? "lab" : "labs"}
-          </span>
+            <span className="text-xs text-[var(--ui-muted)]">
+              {filteredLabs.length} {filteredLabs.length === 1 ? "lab" : "labs"}
+            </span>
+          </div>
         </div>
+
+        {/* Row 2: tag pills */}
+        {tags.length > 0 && (
+          <div className="mt-2.5 flex gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {["ALL", ...tags].map((tag) => (
+              <button
+                key={tag}
+                type="button"
+                onClick={() => setSelectedTag(tag)}
+                className={`flex-shrink-0 rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-wide transition-all duration-150 ${
+                  selectedTag === tag
+                    ? "border-[var(--ui-primary)]/70 bg-[rgba(10,86,198,0.22)] text-[var(--ast-sky)]"
+                    : "border-[var(--ui-border)]/60 bg-transparent text-[var(--ui-muted)] hover:border-[var(--ui-border)] hover:text-[var(--ui-text)]"
+                }`}
+              >
+                {tag === "ALL" ? "Todas" : tag}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
+      {/* Grid */}
       {filteredLabs.length === 0 ? (
-        <div className="rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface)] p-6 text-sm text-[var(--ui-muted)]">
-          No hay labs con esos filtros. Prueba limpiar búsqueda o etiqueta.
+        <div className="rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface)] p-8 text-center text-sm text-[var(--ui-muted)]">
+          No hay labs con esos filtros.{" "}
+          <button
+            type="button"
+            onClick={() => { setQuery(""); setSelectedTag("ALL"); setAccessFilter("all"); setSortMode("featured"); }}
+            className="text-[var(--ui-primary)] underline-offset-2 hover:underline"
+          >
+            Limpiar filtros
+          </button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
           {filteredLabs.map((lab) => {
             const priceSummary = formatPriceSummary(lab.prices);
             const labHref = `/labs/${lab.slug ?? lab.id}`;
@@ -188,79 +202,88 @@ export default function LabsMarketplace({
             return (
               <article
                 key={lab.id}
-                className="relative overflow-hidden rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface)] p-5 shadow-[0_14px_26px_rgba(2,7,22,0.42)] transition duration-300 hover:-translate-y-1 hover:shadow-[0_22px_36px_rgba(2,7,22,0.52)]"
+                className="group relative flex flex-col overflow-hidden rounded-2xl border border-[var(--ui-border)] bg-[var(--ui-surface)] shadow-[0_14px_26px_rgba(2,7,22,0.42)] transition duration-300 hover:-translate-y-1 hover:border-[var(--ui-border)]/80 hover:shadow-[0_22px_36px_rgba(2,7,22,0.52)]"
               >
-                <div
-                  className="mb-4 h-28 rounded-xl border border-[var(--ui-border)] bg-cover bg-center"
-                  style={{ backgroundImage: `url("${previewImage}")` }}
-                />
-
-                <div className="mb-3 flex flex-wrap gap-1.5">
-                  {lab.hasAccess ? (
-                    <span className="rounded-full border border-[var(--ast-mint)]/45 bg-[rgba(4,164,90,0.18)] px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--ast-mint)]">
-                      Acceso activo
-                    </span>
-                  ) : (
-                    <span className="rounded-full border border-[var(--ast-coral)]/45 bg-[rgba(136,31,0,0.24)] px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--ast-yellow)]">
-                      Bloqueado
-                    </span>
+                {/* Image with gradient fade */}
+                <div className="relative h-40 overflow-hidden flex-shrink-0">
+                  <div
+                    className="absolute inset-0 bg-cover bg-center transition-transform duration-500 group-hover:scale-[1.03]"
+                    style={{ backgroundImage: `url("${previewImage}")` }}
+                  />
+                  {/* Gradient fade into card bg */}
+                  <div className="absolute inset-0 bg-gradient-to-t from-[var(--ui-surface)] via-[var(--ui-surface)]/30 to-transparent" />
+                  {/* Access badge inside image */}
+                  {lab.hasAccess && (
+                    <div className="absolute left-3 top-3">
+                      <span className="inline-flex items-center gap-1 rounded-full border border-[var(--ast-mint)]/50 bg-[rgba(4,164,90,0.82)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-[#d0fff0] backdrop-blur-sm">
+                        <span className="text-[9px]">✓</span> Acceso activo
+                      </span>
+                    </div>
                   )}
-                  {lab.labels.map((label) => (
-                    <span
-                      key={`${lab.id}-${label}`}
-                      className="rounded-full border px-2 py-1 text-[10px] font-semibold uppercase tracking-wide"
-                      style={{
-                        borderColor: `${accentColor}55`,
-                        backgroundColor: `${accentColor}14`,
-                        color: accentColor,
-                      }}
-                    >
-                      {label}
-                    </span>
-                  ))}
                 </div>
 
-                <h3 className="font-[family-name:var(--font-space-grotesk)] text-2xl font-bold text-[var(--ui-text)]">
-                  {lab.title}
-                </h3>
-                <p className="mt-2 h-[72px] overflow-hidden text-sm leading-relaxed text-[var(--ui-muted)] [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:3]">
-                  {lab.description ?? "Sin descripción"}
-                </p>
+                {/* Content */}
+                <div className="flex flex-1 flex-col p-5 pt-3">
+                  {/* Labels */}
+                  {lab.labels.length > 0 && (
+                    <div className="mb-3 flex flex-wrap gap-1.5">
+                      {lab.labels.map((label) => (
+                        <span
+                          key={`${lab.id}-${label}`}
+                          className="rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
+                          style={{
+                            borderColor: `${accentColor}55`,
+                            backgroundColor: `${accentColor}14`,
+                            color: accentColor,
+                          }}
+                        >
+                          {label}
+                        </span>
+                      ))}
+                    </div>
+                  )}
 
-                <p className="mt-4 text-sm font-semibold" style={{ color: accentColor }}>
-                  {priceSummary}
-                </p>
+                  <h3 className="font-[family-name:var(--font-space-grotesk)] text-[1.35rem] font-bold leading-tight text-[var(--ui-text)]">
+                    {lab.title}
+                  </h3>
+                  <p className="mt-2 flex-1 overflow-hidden text-sm leading-relaxed text-[var(--ui-muted)] [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:3]">
+                    {lab.description ?? "Sin descripción"}
+                  </p>
 
-                <div className="mt-5 space-y-2">
-                  {lab.hasAccess ? (
-                    <Link
-                      href={labHref}
-                      className="inline-flex w-full items-center justify-center rounded-lg bg-[var(--ui-primary)] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[var(--ast-atlantic)]"
-                    >
-                      Entrar
-                    </Link>
-                  ) : (
-                    <>
-                      <div className="flex items-center gap-3 text-xs">
+                  <p className="mt-4 text-sm font-bold" style={{ color: accentColor }}>
+                    {priceSummary}
+                  </p>
+
+                  {/* Actions */}
+                  <div className="mt-4 space-y-2">
+                    {lab.hasAccess ? (
+                      <Link
+                        href={labHref}
+                        className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-[var(--ui-primary)] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[var(--ast-atlantic)] active:scale-[0.99]"
+                      >
+                        Entrar al lab
+                        <span aria-hidden="true">→</span>
+                      </Link>
+                    ) : (
+                      <>
                         <Link
                           href={`${labHref}?day=1`}
-                          className="text-[var(--ui-primary)] hover:text-[#1d4ed8]"
+                          className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-[var(--ui-border)] bg-[rgba(77,163,255,0.07)] px-4 py-2.5 text-sm font-semibold text-[var(--ast-sky)] transition hover:border-[var(--ui-primary)]/55 hover:bg-[rgba(77,163,255,0.13)] active:scale-[0.99]"
                         >
-                          Ver Día 1
+                          Ver Día 1 gratis
                         </Link>
-                        {canUseCart ? (
-                          <Link href="/cart" className="text-[var(--ui-accent)] hover:underline">
-                            Ir al carrito
-                          </Link>
-                        ) : (
-                          <Link href="/login" className="text-[var(--ui-accent)] hover:underline">
-                            Acceder
+                        {canUseCart && <AddToCartButton labId={lab.id} />}
+                        {!isAuthenticated && (
+                          <Link
+                            href="/login"
+                            className="inline-flex w-full items-center justify-center rounded-lg border border-[var(--ui-accent)]/40 bg-[rgba(4,164,90,0.1)] px-4 py-2 text-sm font-semibold text-[var(--ui-accent)] transition hover:bg-[rgba(4,164,90,0.18)] active:scale-[0.99]"
+                          >
+                            Acceder para comprar
                           </Link>
                         )}
-                      </div>
-                      {canUseCart && <AddToCartButton labId={lab.id} />}
-                    </>
-                  )}
+                      </>
+                    )}
+                  </div>
                 </div>
               </article>
             );
@@ -325,8 +348,8 @@ function formatMoney(amountCents: number, currency: Currency): string {
 }
 
 function normalizeAccentColor(color: string | null | undefined): string {
-  if (!color) return "#2563EB";
+  if (!color) return "#0a56c6";
   const value = color.trim();
-  if (!/^#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})$/.test(value)) return "#2563EB";
+  if (!/^#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})$/.test(value)) return "#0a56c6";
   return value;
 }

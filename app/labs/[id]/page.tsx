@@ -332,7 +332,7 @@ export default async function LabDetails({
                         ? "Repasar"
                         : "Listo para iniciar";
                   const baseClass =
-                    "group relative flex h-[92px] flex-col rounded-lg border px-2.5 py-1.5 text-left transition";
+                    "group relative flex min-h-[88px] flex-col rounded-lg border px-2.5 py-2 text-left transition";
                   const toneClass = dayLocked
                     ? "border-[color:var(--state-locked-border)] bg-[color:var(--state-locked-bg)] text-[color:var(--state-locked)]"
                     : isCurrent
@@ -380,7 +380,7 @@ export default async function LabDetails({
 
                   if (dayLocked) {
                     return (
-                      <li key={dayItem.id} className="h-[92px]">
+                      <li key={dayItem.id}>
                         <span
                           title={dayItem.title}
                           aria-disabled="true"
@@ -393,7 +393,7 @@ export default async function LabDetails({
                   }
 
                   return (
-                    <li key={dayItem.id} className="h-[92px]">
+                    <li key={dayItem.id}>
                       <Link
                         href={`/labs/${id}?day=${dayItem.day_number}`}
                         scroll={false}
@@ -416,21 +416,25 @@ export default async function LabDetails({
           </section>
 
           {isPreview && (
-            <div className="mt-3 flex flex-wrap items-center gap-3">
-              <span className="text-xs px-3 py-1 rounded-full bg-[var(--ast-cobalt)]/60 border border-[var(--ast-sky)]/60">
-                {guestMode ? "Vista previa: solo Día 1" : "Acceso parcial: solo Día 1"}
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--ast-sky)]/40 bg-[rgba(10,86,198,0.18)] px-3 py-1.5 text-xs font-medium text-[var(--ast-sky)]">
+                <span className="h-1.5 w-1.5 rounded-full bg-[var(--ast-sky)]/70" />
+                {guestMode ? "Vista previa — solo Día 1 disponible" : "Acceso parcial — solo Día 1"}
               </span>
               {guestMode ? (
                 <Link
                   href="/login"
-                  className="text-xs px-3 py-1 rounded-full bg-[var(--ast-mint)] text-[var(--ast-black)] hover:bg-[var(--ast-forest)] transition"
+                  className="inline-flex items-center gap-1.5 rounded-full border border-[var(--ast-mint)]/55 bg-[rgba(4,164,90,0.18)] px-4 py-1.5 text-xs font-semibold text-[var(--ast-mint)] transition hover:bg-[rgba(4,164,90,0.26)] active:scale-95"
                 >
-                  Crear cuenta para desbloquear todo
+                  Crear cuenta para desbloquear todo →
                 </Link>
               ) : (
-                <span className="text-xs px-3 py-1 rounded-full bg-black/30 border border-white/20">
-                  Compra este lab para desbloquear todos los días
-                </span>
+                <Link
+                  href="/cart"
+                  className="inline-flex items-center gap-1.5 rounded-full border border-[var(--ast-mint)]/55 bg-[rgba(4,164,90,0.18)] px-4 py-1.5 text-xs font-semibold text-[var(--ast-mint)] transition hover:bg-[rgba(4,164,90,0.26)] active:scale-95"
+                >
+                  Comprar acceso completo →
+                </Link>
               )}
             </div>
           )}
