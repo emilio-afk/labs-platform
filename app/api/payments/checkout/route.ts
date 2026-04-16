@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { resolveAppUrl } from "@/utils/appUrl";
 import { createClient } from "@/utils/supabase/server";
 import { createAdminClient } from "@/utils/supabase/admin";
 
@@ -191,7 +192,7 @@ export async function POST(request: Request) {
   }
 
   const finalAmountCents = Math.max(originalAmountCents - discountCents, 0);
-  const appUrl = resolveAppUrl(request);
+  const appUrl = resolveAppUrl(request, process.env.NEXT_PUBLIC_APP_URL);
   const labIds = payableLines.map((line) => line.labId);
   const successUrl = resolveSuccessUrl(appUrl, labIds);
   const cancelUrl = resolveCancelUrl(appUrl, labIds);
@@ -369,18 +370,6 @@ function resolveSuccessUrl(appUrl: string, labIds: string[]): string {
 
 function resolveCancelUrl(appUrl: string, labIds: string[]): string {
   return `${appUrl}/cart?payment=cancelled&labs=${encodeURIComponent(labIds.join(","))}`;
-}
-
-function resolveAppUrl(request: Request): string {
-  const envUrl = process.env.NEXT_PUBLIC_APP_URL?.trim();
-  if (envUrl) return envUrl.replace(/\/+$/, "");
-
-  const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host");
-  const proto = request.headers.get("x-forwarded-proto") ?? "https";
-  if (host) return `${proto}://${host}`;
-
-  const fallbackUrl = new URL(request.url);
-  return `${fallbackUrl.protocol}//${fallbackUrl.host}`;
 }
 
 async function createStripeCheckoutSession(params: {
